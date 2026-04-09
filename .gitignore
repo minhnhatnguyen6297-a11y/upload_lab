@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.ui_setup_state.json
+.ui_setup_state_pyqt6.json
+downloads/
+logs/
+output/
+runs/
+upload_runs/
+_release/
+registry.sqlite3
+nd_storage_state.json
+428_2026_CCGD_extracted.json
