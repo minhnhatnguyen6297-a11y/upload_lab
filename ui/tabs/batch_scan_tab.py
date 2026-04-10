@@ -1,167 +1,222 @@
-"""Batch Scan Folder tab."""
+"""Batch scan tab."""
+
+from __future__ import annotations
+
+from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QGroupBox,
     QCheckBox,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
     QSpinBox,
-    QMessageBox,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
-from pathlib import Path
+
 from ui.widgets import FolderBrowserWidget, ProgressPanelWidget
 
 
 class BatchScanTab(QWidget):
-    """Tab for batch scanning a folder."""
-    
-    run_batch_scan = pyqtSignal(dict)  # Emits config dict
-    
-    def __init__(self, parent=None):
+    """Tab for batch scanning folders."""
+
+    run_batch_scan = pyqtSignal(dict)
+
+    def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._init_ui()
-    
-    def _init_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(12, 12, 12, 12)
-        
-        # Group 1: Folder Selection
-        group1 = QGroupBox("Thư mục quét hồ sơ")
-        group1_layout = QVBoxLayout(group1)
-        self.folder_browser = FolderBrowserWidget(label_text="Chọn thư mục tổng hồ sơ")
-        group1_layout.addWidget(self.folder_browser)
-        layout.addWidget(group1)
-        
-        # Group 2: Options
-        group2 = QGroupBox("Tùy chọn")
-        group2_layout = QVBoxLayout(group2)
-        
-        # Modified since date
-        date_row = QHBoxLayout()
-        date_row.addWidget(QLabel("Modified since (YYYY-MM-DD):"))
+        self.setMinimumWidth(960)
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(10)
+
+        self.notice_banner = QLabel()
+        self.notice_banner.setObjectName("inlineNotice")
+        self.notice_banner.setWordWrap(True)
+        self.notice_banner.setVisible(False)
+        root.addWidget(self.notice_banner)
+
+        content_grid = QGridLayout()
+        content_grid.setHorizontalSpacing(14)
+        content_grid.setVerticalSpacing(14)
+        content_grid.setColumnStretch(0, 1)
+        content_grid.setColumnStretch(1, 1)
+        root.addLayout(content_grid, 1)
+
+        source_group = QGroupBox("Nguồn quét")
+        source_group.setMinimumWidth(460)
+        source_group.setMaximumHeight(126)
+        source_layout = QVBoxLayout(source_group)
+        source_layout.setContentsMargins(12, 12, 12, 10)
+        self.folder_browser = FolderBrowserWidget(
+            label_text="Thư mục tổng hồ sơ",
+            button_text="Chọn thư mục",
+            dialog_title="Chọn thư mục tổng hồ sơ",
+            placeholder_text="Chưa chọn thư mục",
+        )
+        source_layout.addWidget(self.folder_browser)
+        content_grid.addWidget(source_group, 0, 0)
+
+        options_group = QGroupBox("Tùy chọn quét")
+        options_group.setMinimumWidth(460)
+        options_group.setMaximumHeight(150)
+        options_layout = QGridLayout(options_group)
+        options_layout.setHorizontalSpacing(12)
+        options_layout.setVerticalSpacing(8)
+        options_layout.setContentsMargins(12, 12, 12, 10)
+
+        options_layout.addWidget(QLabel("Mốc ngày sửa"), 0, 0)
         self.modified_since_input = QLineEdit()
-        self.modified_since_input.setPlaceholderText("Để trống để bỏ qua")
-        self.modified_since_input.setMaximumWidth(200)
-        date_row.addWidget(self.modified_since_input)
-        date_row.addStretch()
-        group2_layout.addLayout(date_row)
-        
-        # Full rescan checkbox
-        self.full_rescan_check = QCheckBox("Full rescan (bỏ qua mốc ngày)")
-        group2_layout.addWidget(self.full_rescan_check)
-        
-        # Max depth
-        depth_row = QHBoxLayout()
-        depth_row.addWidget(QLabel("Độ sâu quét tối đa:"))
+        self.modified_since_input.setPlaceholderText("YYYY-MM-DD")
+        self.modified_since_input.setMinimumWidth(180)
+        self.modified_since_input.setMaximumWidth(220)
+        options_layout.addWidget(self.modified_since_input, 0, 1)
+
+        options_layout.addWidget(QLabel("Độ sâu quét"), 0, 2)
         self.max_depth_spin = QSpinBox()
         self.max_depth_spin.setMinimum(1)
         self.max_depth_spin.setMaximum(10)
         self.max_depth_spin.setValue(3)
-        self.max_depth_spin.setMaximumWidth(80)
-        depth_row.addWidget(self.max_depth_spin)
-        depth_row.addStretch()
-        group2_layout.addLayout(depth_row)
-        
-        layout.addWidget(group2)
-        
-        # Group 3: Actions
-        group3 = QGroupBox("Thao tác")
-        group3_layout = QHBoxLayout(group3)
-        
-        self.run_btn = QPushButton("▶️ Chạy Batch Scan")
+        self.max_depth_spin.setMaximumWidth(90)
+        options_layout.addWidget(self.max_depth_spin, 0, 3)
+
+        self.full_rescan_check = QCheckBox("Quét lại toàn bộ, bỏ qua mốc ngày")
+        options_layout.addWidget(self.full_rescan_check, 1, 0, 1, 4)
+        options_layout.setColumnStretch(1, 1)
+        options_layout.setColumnStretch(4, 1)
+
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 4, 0, 0)
+        action_row.setSpacing(10)
+        self.run_btn = QPushButton("Quét hồ sơ")
+        self.run_btn.setMinimumWidth(150)
         self.run_btn.clicked.connect(self._on_run_clicked)
-        group3_layout.addWidget(self.run_btn)
-        
-        group3_layout.addStretch()
-        layout.addWidget(group3)
-        
-        # Group 4: Progress
-        group4 = QGroupBox("Tiến độ")
-        group4_layout = QVBoxLayout(group4)
+        action_row.addWidget(self.run_btn)
+        action_row.addStretch()
+        options_layout.addLayout(action_row, 2, 0, 1, 5)
+        content_grid.addWidget(options_group, 1, 0)
+
+        progress_group = QGroupBox("Tiến độ quét")
+        progress_group.setMinimumWidth(460)
+        progress_group.setMaximumHeight(150)
+        progress_layout = QVBoxLayout(progress_group)
+        progress_layout.setContentsMargins(12, 12, 12, 10)
+        progress_layout.setSpacing(6)
+        progress_header = QHBoxLayout()
+        progress_header.addStretch()
+        self.progress_toggle = QToolButton()
+        self.progress_toggle.setText("Ẩn")
+        self.progress_toggle.setCheckable(True)
+        self.progress_toggle.toggled.connect(self._toggle_progress_panel)
+        progress_header.addWidget(self.progress_toggle)
+        progress_layout.addLayout(progress_header)
+
+        self.progress_container = QFrame()
+        container_layout = QVBoxLayout(self.progress_container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
         self.progress_panel = ProgressPanelWidget()
-        group4_layout.addWidget(self.progress_panel)
-        layout.addWidget(group4)
-        
-        # Group 5: Results
-        group5 = QGroupBox("Kết quả")
-        group5_layout = QVBoxLayout(group5)
-        
-        manifest_row = QHBoxLayout()
-        manifest_row.addWidget(QLabel("Manifest:"))
+        self.progress_panel.setMinimumHeight(92)
+        container_layout.addWidget(self.progress_panel)
+        progress_layout.addWidget(self.progress_container)
+        content_grid.addWidget(progress_group, 0, 1)
+
+        result_group = QGroupBox("Kết quả")
+        result_group.setMinimumWidth(460)
+        result_group.setMaximumHeight(150)
+        result_layout = QGridLayout(result_group)
+        result_layout.setHorizontalSpacing(12)
+        result_layout.setVerticalSpacing(8)
+        result_layout.setContentsMargins(12, 12, 12, 10)
+
+        result_layout.addWidget(QLabel("Manifest"), 0, 0)
         self.manifest_display = QLineEdit()
         self.manifest_display.setReadOnly(True)
-        manifest_row.addWidget(self.manifest_display)
-        group5_layout.addLayout(manifest_row)
-        
-        output_row = QHBoxLayout()
-        output_row.addWidget(QLabel("Output folder:"))
+        self.manifest_display.setMinimumWidth(340)
+        result_layout.addWidget(self.manifest_display, 0, 1)
+
+        result_layout.addWidget(QLabel("Thư mục output"), 1, 0)
         self.output_display = QLineEdit()
         self.output_display.setReadOnly(True)
-        output_row.addWidget(self.output_display)
-        group5_layout.addLayout(output_row)
-        
-        stats_row = QHBoxLayout()
-        stats_row.addWidget(QLabel("Summary:"))
+        self.output_display.setMinimumWidth(340)
+        result_layout.addWidget(self.output_display, 1, 1)
+
+        result_layout.addWidget(QLabel("Tóm tắt"), 2, 0)
         self.stats_display = QLineEdit()
         self.stats_display.setReadOnly(True)
-        stats_row.addWidget(self.stats_display)
-        group5_layout.addLayout(stats_row)
-        
-        layout.addWidget(group5)
-        
-        layout.addStretch()
-    
+        self.stats_display.setMinimumWidth(340)
+        result_layout.addWidget(self.stats_display, 2, 1)
+        result_layout.setColumnStretch(1, 1)
+        content_grid.addWidget(result_group, 1, 1)
+        content_grid.setRowStretch(2, 1)
+
+    def _toggle_progress_panel(self, collapsed: bool) -> None:
+        self.progress_container.setVisible(not collapsed)
+        self.progress_toggle.setText("Hiện" if collapsed else "Ẩn")
+
     def _on_run_clicked(self) -> None:
-        """Handle run button click."""
         folder = self.folder_browser.get_folder_path()
         if not folder:
-            QMessageBox.warning(self, "Lỗi", "Vui lòng chọn thư mục quét.")
+            self.show_notice("Vui lòng chọn thư mục tổng hồ sơ trước khi quét.", level="warning")
             return
-        
+
         folder_path = Path(folder)
         if not folder_path.exists() or not folder_path.is_dir():
-            QMessageBox.warning(self, "Lỗi", "Thư mục không hợp lệ.")
+            self.show_notice("Thư mục đã chọn không còn tồn tại hoặc không hợp lệ. Hãy chọn lại.", level="warning")
             return
-        
+
         config = {
             "folder": str(folder_path),
             "modified_since": self.modified_since_input.text().strip() or None,
             "full_rescan": self.full_rescan_check.isChecked(),
             "max_depth": self.max_depth_spin.value(),
         }
-        
+        self.clear_notice()
         self.run_btn.setEnabled(False)
+        self.progress_toggle.setChecked(False)
         self.progress_panel.reset()
         self.run_batch_scan.emit(config)
-    
+
     def set_progress(self, progress: int) -> None:
-        """Update progress bar."""
         self.progress_panel.set_progress(progress)
-    
+
     def set_status(self, status: str) -> None:
-        """Update status text."""
         self.progress_panel.set_status(status)
-    
+
     def set_detail(self, detail: str) -> None:
-        """Update detail text."""
         self.progress_panel.set_detail(detail)
-    
+
     def set_file(self, file_path: str) -> None:
-        """Update current file being processed."""
         self.progress_panel.set_file(file_path)
-    
+
     def set_results(self, manifest_path: str, output_folder: str, stats: str) -> None:
-        """Set results after scan completes."""
         self.manifest_display.setText(manifest_path)
+        self.manifest_display.setCursorPosition(0)
         self.output_display.setText(output_folder)
+        self.output_display.setCursorPosition(0)
         self.stats_display.setText(stats)
-    
+        self.stats_display.setCursorPosition(0)
+
     def enable_run_button(self, enabled: bool = True) -> None:
-        """Enable/disable run button."""
         self.run_btn.setEnabled(enabled)
+
+    def show_notice(self, text: str, *, level: str = "info") -> None:
+        self.notice_banner.setText(text)
+        self.notice_banner.setProperty("noticeLevel", level)
+        self.notice_banner.style().unpolish(self.notice_banner)
+        self.notice_banner.style().polish(self.notice_banner)
+        self.notice_banner.setVisible(bool(text))
+
+    def clear_notice(self) -> None:
+        self.notice_banner.clear()
+        self.notice_banner.setProperty("noticeLevel", "info")
+        self.notice_banner.style().unpolish(self.notice_banner)
+        self.notice_banner.style().polish(self.notice_banner)
+        self.notice_banner.setVisible(False)

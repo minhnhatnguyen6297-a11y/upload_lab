@@ -429,9 +429,15 @@ def append_error(manifest: dict, file_path: Path, error: str) -> None:
     manifest["errors"].append({"file": str(file_path), "error": error})
 
 
-def collect_batch_files(folder_root: Path, manifest: dict) -> tuple[list[Path], list[Path]]:
+def collect_batch_files(
+    folder_root: Path,
+    manifest: dict,
+    *,
+    max_depth: int = MAX_SCAN_DEPTH,
+) -> tuple[list[Path], list[Path]]:
     supported_files: list[Path] = []
     unsupported_files: list[Path] = []
+    effective_max_depth = max(1, int(max_depth))
 
     for current_root, dirs, files in os.walk(str(folder_root)):
         current_path = Path(current_root)
@@ -439,7 +445,7 @@ def collect_batch_files(folder_root: Path, manifest: dict) -> tuple[list[Path], 
         depth = len(relative_dir.parts)
         if depth > 0:
             manifest["stats"]["total_subfolders"] += 1
-        if depth >= MAX_SCAN_DEPTH:
+        if depth >= effective_max_depth:
             dirs[:] = []
 
         for name in files:
@@ -527,6 +533,7 @@ def run_batch_scan(
     full_rescan: bool = False,
     working_dir: Optional[Path] = None,
     progress_callback=None,
+    max_depth: int = MAX_SCAN_DEPTH,
 ) -> dict:
     folder_root = Path(folder_root)
     if not folder_root.exists() or not folder_root.is_dir():
@@ -543,7 +550,11 @@ def run_batch_scan(
 
     try:
         emit_progress(progress_callback, manifest, stage="indexing", step="collect_files")
-        supported_files, unsupported_files = collect_batch_files(folder_root, manifest)
+        supported_files, unsupported_files = collect_batch_files(
+            folder_root,
+            manifest,
+            max_depth=max_depth,
+        )
         emit_progress(progress_callback, manifest, stage="indexing", step="collected")
 
         for file_path in unsupported_files:

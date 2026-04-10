@@ -47,6 +47,7 @@ class BatchScanWorker(QThread):
     def run(self) -> None:
         """Run batch scan."""
         try:
+            self._stop_requested = False
             if not self.folder_path or not self.folder_path.exists():
                 raise ValueError("Folder không hợp lệ")
             
@@ -59,6 +60,7 @@ class BatchScanWorker(QThread):
                 full_rescan=self.full_rescan,
                 working_dir=self.working_dir,
                 progress_callback=self._on_progress,
+                max_depth=self.max_depth,
             )
             
             if self._stop_requested:

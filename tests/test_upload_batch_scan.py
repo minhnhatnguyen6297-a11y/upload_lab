@@ -155,6 +155,25 @@ class UploadBatchScanTests(unittest.TestCase):
         self.assertEqual(len(output_files), 1)
         self.assertIn("428_2026_CCGD", output_files[0].name)
 
+    def test_batch_scan_respects_custom_max_depth(self):
+        batch_root = self.root / "hoso"
+        make_docx(
+            batch_root / "A" / "B" / "allowed.docx",
+            "Số công chứng 428/2026/CCGD",
+        )
+        make_docx(
+            batch_root / "A" / "B" / "C" / "blocked.docx",
+            "Số công chứng 429/2026/CCGD",
+        )
+        workdir = self.root / "work"
+
+        manifest = run_batch_scan(batch_root, working_dir=workdir, max_depth=2)
+
+        output_files = sorted((workdir / "output").glob("*.json"))
+        self.assertEqual(manifest["stats"]["candidates_found"], 1)
+        self.assertEqual(len(output_files), 1)
+        self.assertIn("428_2026_CCGD", output_files[0].name)
+
     def test_batch_scan_skips_when_contract_already_uploaded_success(self):
         batch_root = self.root / "hoso"
         docx_path = make_docx(

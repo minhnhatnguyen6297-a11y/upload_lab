@@ -1066,7 +1066,18 @@ class NamDinhUploaderSession:
         stop_event,
         *,
         exclude_contract_nos: Optional[set[str]] = None,
+        progress_callback: Optional[Callable[[dict], None]] = None,
     ) -> dict:
+        def emit_progress(event: str, **payload: object) -> None:
+            if progress_callback is None:
+                return
+            progress_payload = {"event": event, **payload}
+            try:
+                progress_callback(progress_payload)
+            except Exception:
+                # UI progress updates must not break the uploader flow.
+                pass
+
         manifest, records, total_pending = load_upload_queue(
             manifest_path,
             working_dir=self.working_dir,
@@ -1078,12 +1089,21 @@ class NamDinhUploaderSession:
         )
         records = filtered_records[: self.settings.max_prepared_tabs]
         filtered_pending = len(filtered_records)
+        emit_progress(
+            "queue_loaded",
+            run_id=run_id,
+            total_pending=total_pending,
+            filtered_pending=filtered_pending,
+            chunk_size=len(records),
+            excluded_duplicates=len(duplicate_records),
+            manifest_path=str(Path(manifest_path)),
+        )
 
         if not records:
             duplicate_message = ""
             if duplicate_records:
                 duplicate_message = f" Da loai {len(duplicate_records)} ho so trung so cong chung tren web."
-            return {
+            summary = {
                 "run_id": run_id,
                 "prepared_count": 0,
                 "total_pending": total_pending,
@@ -1092,6 +1112,8 @@ class NamDinhUploaderSession:
                 "excluded_duplicates": len(duplicate_records),
                 "message": f"Khong con ho so nao can chuan bi.{duplicate_message}",
             }
+            emit_progress("finished", **summary)
+            return summary
 
         artifact_dir = self.working_dir / "upload_runs" / f"{now_iso().replace(':', '').replace('-', '')}_{run_id}"
         artifact_dir.mkdir(parents=True, exist_ok=True)
@@ -1105,7 +1127,26 @@ class NamDinhUploaderSession:
         try:
             for record in records:
                 if stop_event.is_set():
+                    emit_progress(
+                        "stopped",
+                        run_id=run_id,
+                        prepared_count=prepared_count,
+                        total_pending=filtered_pending,
+                        remaining=max(filtered_pending - prepared_count, 0),
+                        artifact_dir=str(artifact_dir),
+                        excluded_duplicates=len(duplicate_records),
+                    )
                     break
+                emit_progress(
+                    "record_started",
+                    run_id=run_id,
+                    record_id=record.record_id,
+                    contract_no=record.contract_no,
+                    prepared_count=prepared_count,
+                    total_pending=filtered_pending,
+                    remaining=max(filtered_pending - prepared_count, 0),
+                    artifact_dir=str(artifact_dir),
+                )
                 self.log(f"[UPLOAD] Dang chuan bi {record.contract_no} (record #{record.record_id})")
                 try:
                     result = self._prepare_record(record, artifact_dir)
@@ -1123,6 +1164,19 @@ class NamDinhUploaderSession:
                     self.log(
                         f"[UPLOAD] {record.contract_no}: {result['status']} -> {result['screenshot']} | debug={result['debug_json']}"
                     )
+                    emit_progress(
+                        "record_prepared",
+                        run_id=run_id,
+                        record_id=record.record_id,
+                        contract_no=record.contract_no,
+                        status=result["status"],
+                        prepared_count=prepared_count,
+                        total_pending=filtered_pending,
+                        remaining=max(filtered_pending - prepared_count, 0),
+                        artifact_dir=str(artifact_dir),
+                        screenshot=result["screenshot"],
+                        debug_json=result["debug_json"],
+                    )
                 except Exception as exc:
                     errors.append({"record_id": record.record_id, "contract_no": record.contract_no, "error": str(exc)})
                     update_registry_record_by_id(
@@ -1134,6 +1188,17 @@ class NamDinhUploaderSession:
                         artifact_dir=str(artifact_dir),
                     )
                     self.log(f"[UPLOAD] Loi {record.contract_no}: {exc}")
+                    emit_progress(
+                        "record_failed",
+                        run_id=run_id,
+                        record_id=record.record_id,
+                        contract_no=record.contract_no,
+                        error=str(exc),
+                        prepared_count=prepared_count,
+                        total_pending=filtered_pending,
+                        remaining=max(filtered_pending - prepared_count, 0),
+                        artifact_dir=str(artifact_dir),
+                    )
             summary = {
                 "run_id": run_id,
                 "prepared_count": prepared_count,
@@ -1152,6 +1217,7 @@ class NamDinhUploaderSession:
                 json.dumps(summary, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
+            emit_progress("finished", **summary)
             return summary
         finally:
             self.run_log_path = None

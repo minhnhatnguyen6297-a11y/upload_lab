@@ -1,121 +1,113 @@
-"""Log viewer widget with color-coded messages."""
+"""Log viewer widget with color-coded messages and collapsible content."""
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QTextCursor, QFont
+from __future__ import annotations
+
+from pathlib import Path
+
+from PyQt6.QtGui import QColor, QFont, QTextCursor
 from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
+    QApplication,
+    QFileDialog,
     QHBoxLayout,
-    QTextEdit,
-    QPushButton,
     QLabel,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
+
 from ui.styles.stylesheets import get_log_color
 
 
 class LogViewerWidget(QWidget):
-    """Read-only log viewer with color-coded messages."""
-    
-    def __init__(self, parent=None):
+    """Read-only log viewer shared by the whole application."""
+
+    def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.log_text = None
-        self._init_ui()
-    
-    def _init_ui(self) -> None:
+        self._collapsed = False
+        self._build_ui()
+
+    def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Title
-        title = QLabel("Log")
-        title.setStyleSheet("font-weight: bold; font-size: 10pt;")
-        layout.addWidget(title)
-        
-        # Text editor
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        header_row = QHBoxLayout()
+        self.title_label = QLabel("Nhật ký hoạt động")
+        self.title_label.setStyleSheet("font-weight: 700;")
+        header_row.addWidget(self.title_label)
+        header_row.addStretch(1)
+        self.toggle_btn = QPushButton("Hiện log")
+        self.toggle_btn.clicked.connect(self.toggle_collapsed)
+        header_row.addWidget(self.toggle_btn)
+        layout.addLayout(header_row)
+
+        self.content_widget = QWidget()
+        content_layout = QVBoxLayout(self.content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
         self.log_text.setFont(QFont("Courier New", 9))
-        layout.addWidget(self.log_text)
-        
-        # Button row
-        btn_layout = QHBoxLayout()
-        
-        clear_btn = QPushButton("Clear Log")
-        clear_btn.clicked.connect(self.clear)
-        btn_layout.addWidget(clear_btn)
-        
-        copy_btn = QPushButton("Copy Log")
-        copy_btn.clicked.connect(self.copy_to_clipboard)
-        btn_layout.addWidget(copy_btn)
-        
-        save_btn = QPushButton("Save Log to File")
-        save_btn.clicked.connect(self.save_to_file)
-        btn_layout.addWidget(save_btn)
-        
-        btn_layout.addStretch()
-        layout.addLayout(btn_layout)
-    
+        content_layout.addWidget(self.log_text)
+
+        button_row = QHBoxLayout()
+        self.clear_btn = QPushButton("Xóa log")
+        self.clear_btn.clicked.connect(self.clear)
+        button_row.addWidget(self.clear_btn)
+
+        self.copy_btn = QPushButton("Sao chép log")
+        self.copy_btn.clicked.connect(self.copy_to_clipboard)
+        button_row.addWidget(self.copy_btn)
+
+        self.save_btn = QPushButton("Lưu log ra tệp")
+        self.save_btn.clicked.connect(self.save_to_file)
+        button_row.addWidget(self.save_btn)
+        button_row.addStretch(1)
+        content_layout.addLayout(button_row)
+        layout.addWidget(self.content_widget)
+        self.set_collapsed(True)
+
     def append_log(self, message: str) -> None:
-        """Append a log message with color-coding."""
-        # Extract tag from message (e.g., "[BATCH]" from "[BATCH] Some message")
         tag = ""
         if message.startswith("[") and "]" in message:
-            tag = message[:message.index("]")+1]
-        
-        # Get color for tag
-        color = get_log_color(tag)
-        
-        # Append to text
+            tag = message[: message.index("]") + 1]
+        color = QColor(get_log_color(tag))
         cursor = self.log_text.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         self.log_text.setTextCursor(cursor)
-        
-        # Format
-        format_obj = cursor.charFormat()
-        format_obj.setForeground(QColor(color))
-        
-        cursor.insertText(message.rstrip() + "\n", format_obj)
-        
-        # Auto-scroll to bottom
-        self.log_text.verticalScrollBar().setValue(
-            self.log_text.verticalScrollBar().maximum()
-        )
-    
+        fmt = cursor.charFormat()
+        fmt.setForeground(color)
+        cursor.insertText(message.rstrip() + "\n", fmt)
+        self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
+
     def clear(self) -> None:
-        """Clear all log messages."""
         self.log_text.clear()
-    
+
+    def is_collapsed(self) -> bool:
+        return self._collapsed
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        self._collapsed = bool(collapsed)
+        self.content_widget.setVisible(not self._collapsed)
+        self.toggle_btn.setText("Hiện log" if self._collapsed else "Ẩn log")
+
+    def toggle_collapsed(self) -> None:
+        self.set_collapsed(not self._collapsed)
+
     def copy_to_clipboard(self) -> None:
-        """Copy all log text to clipboard."""
-        import subprocess
-        text = self.log_text.toPlainText()
-        try:
-            # Use Windows clipboard
-            process = subprocess.Popen(
-                ["clip"],
-                stdin=subprocess.PIPE,
-                text=True
-            )
-            process.communicate(text)
-        except Exception:
-            pass
-    
+        QApplication.clipboard().setText(self.log_text.toPlainText())
+
     def save_to_file(self) -> None:
-        """Save log to file."""
-        from PyQt6.QtWidgets import QFileDialog
-        from pathlib import Path
-        
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save Log File",
+            "Lưu log",
             "",
-            "Text Files (*.txt);;All Files (*)"
+            "Text Files (*.txt);;All Files (*)",
         )
-        
-        if file_path:
-            try:
-                Path(file_path).write_text(
-                    self.log_text.toPlainText(),
-                    encoding="utf-8"
-                )
-            except Exception as e:
-                self.append_log(f"[ERROR] Failed to save log: {e}")
+        if not file_path:
+            return
+        try:
+            Path(file_path).write_text(self.log_text.toPlainText(), encoding="utf-8")
+        except Exception as exc:  # pragma: no cover - UI feedback
+            self.append_log(f"[ERROR] Không lưu được log: {exc}")

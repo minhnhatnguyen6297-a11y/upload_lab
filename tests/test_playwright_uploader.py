@@ -5,12 +5,15 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from threading import Event
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from openpyxl import Workbook
 
 from batch_scan import connect_registry, get_row_by_id, upsert_registry_record
 from playwright_uploader import (
+    NamDinhUploaderSession,
     field_value_matches,
     finalize_uploaded_records,
     get_uploader_setup_status,
@@ -223,6 +226,99 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
         self.assertTrue(status["ready"])
         self.assertTrue(status["storage_state_exists"])
         self.assertEqual(status["storage_state_path"], storage_state.resolve())
+
+    def test_prepare_manifest_emits_structured_progress_and_updates_registry(self):
+        run_id = "run-progress"
+        source_path = self.root / "source.docx"
+        source_path.write_text("dummy", encoding="utf-8")
+        duplicate_source = self.root / "duplicate.docx"
+        duplicate_source.write_text("dummy", encoding="utf-8")
+        output_ok = make_output_json(
+            self.workdir / "output" / "ok.json",
+            contract_no="501/2026/CCGD",
+            file_goc=str(source_path),
+        )
+        output_dup = make_output_json(
+            self.workdir / "output" / "dup.json",
+            contract_no="999/2026/CCGD",
+            file_goc=str(duplicate_source),
+        )
+        record_id = self._seed_record(
+            file_key="prepare-ok",
+            run_id=run_id,
+            contract_no="501/2026/CCGD",
+            status="extracted",
+            output_json_path=output_ok,
+        )
+        self._seed_record(
+            file_key="prepare-dup",
+            run_id=run_id,
+            contract_no="999/2026/CCGD",
+            status="extracted",
+            output_json_path=output_dup,
+        )
+
+        manifest_path = self.workdir / "runs" / "prepare_manifest.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps({"run_id": run_id}), encoding="utf-8")
+
+        save_uploader_env(
+            {
+                "ND_BASE_URL": "https://example.test",
+                "ND_LOGIN_URL": "https://example.test/login",
+                "ND_CREATE_URL": "https://example.test/create",
+                "ND_USERNAME": "operator",
+                "ND_PASSWORD": "secret",
+                "ND_STORAGE_STATE_PATH": "nd_storage_state.json",
+                "ND_MAX_PREPARED_TABS": "5",
+                "ND_POST_PREPARE_DELAY_MS": "0",
+            },
+            base_dir=self.workdir,
+        )
+        (self.workdir / "nd_storage_state.json").write_text("{}", encoding="utf-8")
+        session = NamDinhUploaderSession(load_uploader_settings(self.workdir), working_dir=self.workdir)
+
+        def fake_prepare(record, artifact_dir):
+            contract_key = record.contract_no.replace("/", "_")
+            screenshot = artifact_dir / f"before_save_{contract_key}.png"
+            debug_json = artifact_dir / f"debug_{contract_key}.json"
+            screenshot.write_text("img", encoding="utf-8")
+            debug_json.write_text("{}", encoding="utf-8")
+            return {
+                "status": "prepared_dry_run",
+                "verify_json": json.dumps({"fields": {"so_cong_chung": {"success": True}}}),
+                "artifact_dir": str(artifact_dir),
+                "screenshot": str(screenshot),
+                "debug_json": str(debug_json),
+            }
+
+        progress_events: list[dict] = []
+        with patch.object(NamDinhUploaderSession, "ensure_authenticated", return_value=None), patch.object(
+            NamDinhUploaderSession,
+            "_prepare_record",
+            side_effect=fake_prepare,
+        ):
+            summary = session.prepare_manifest(
+                manifest_path,
+                Event(),
+                exclude_contract_nos={"999/2026"},
+                progress_callback=progress_events.append,
+            )
+
+        self.assertEqual(summary["prepared_count"], 1)
+        self.assertEqual(summary["excluded_duplicates"], 1)
+        self.assertTrue((Path(summary["artifact_dir"]) / "upload_manifest.json").exists())
+
+        events_by_name = [event["event"] for event in progress_events]
+        self.assertEqual(events_by_name[0], "queue_loaded")
+        self.assertIn("record_started", events_by_name)
+        self.assertIn("record_prepared", events_by_name)
+        self.assertEqual(events_by_name[-1], "finished")
+
+        row = get_row_by_id(self.conn, record_id)
+        self.assertEqual(row["status"], "prepared_dry_run")
+        self.assertTrue(row["artifact_dir"])
+        self.assertTrue(json.loads(row["verify_json"]))
 
 
 if __name__ == "__main__":
