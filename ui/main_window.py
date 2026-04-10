@@ -31,6 +31,7 @@ from ui.widgets import LogViewerWidget
 try:
     from batch_scan import MAX_SCAN_DEPTH
     from playwright_uploader import (
+        DEFAULT_REQUESTER_SHEET_URL,
         NamDinhUploaderSession,
         default_export_from_date,
         default_export_to_date,
@@ -38,6 +39,7 @@ try:
         ensure_uploader_env_file,
         finalize_uploaded_records,
         get_uploader_setup_status,
+        load_requester_contract_lookup,
         load_upload_queue,
         load_uploader_settings,
         probe_playwright_runtime,
@@ -49,6 +51,7 @@ try:
 except ImportError:  # pragma: no cover
     from ..batch_scan import MAX_SCAN_DEPTH
     from ..playwright_uploader import (
+        DEFAULT_REQUESTER_SHEET_URL,
         NamDinhUploaderSession,
         default_export_from_date,
         default_export_to_date,
@@ -56,6 +59,7 @@ except ImportError:  # pragma: no cover
         ensure_uploader_env_file,
         finalize_uploaded_records,
         get_uploader_setup_status,
+        load_requester_contract_lookup,
         load_upload_queue,
         load_uploader_settings,
         probe_playwright_runtime,
@@ -230,6 +234,7 @@ class MainWindow(QMainWindow):
         self.upload_tab.finalize_records.connect(self._on_upload_finalize)
         self.upload_tab.download_web_export.connect(self._on_download_web_export)
         self.upload_tab.manifest_path_changed.connect(self._on_manifest_path_changed)
+        self.upload_tab.requester_sheet_url_changed.connect(self._on_requester_sheet_url_changed)
         self.upload_tab.export_path_changed.connect(self._on_export_path_changed)
         self.upload_tab.open_source_requested.connect(self._open_source_for_record)
         self.upload_tab.open_path_requested.connect(self._open_path)
@@ -267,6 +272,10 @@ class MainWindow(QMainWindow):
             manifest_path = str(self.settings.value("upload/manifest_path", "") or "")
             if manifest_path:
                 self.upload_tab.set_manifest_path(manifest_path)
+            requester_sheet_url = str(
+                self.settings.value("upload/requester_sheet_url", DEFAULT_REQUESTER_SHEET_URL) or ""
+            )
+            self.upload_tab.set_requester_sheet_url(requester_sheet_url or DEFAULT_REQUESTER_SHEET_URL)
             export_path = str(self.settings.value("upload/export_path", "") or "")
             if export_path:
                 self.upload_tab.set_export_path(export_path)
@@ -300,6 +309,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("batch/full_rescan", self.batch_tab.full_rescan_check.isChecked())
         self.settings.setValue("batch/max_depth", self.batch_tab.max_depth_spin.value())
         self.settings.setValue("upload/manifest_path", self.upload_tab.get_manifest_path())
+        self.settings.setValue("upload/requester_sheet_url", self.upload_tab.get_requester_sheet_url())
         self.settings.setValue("upload/export_path", self.upload_tab.get_export_path())
         self.settings.setValue("upload/from_date", self.upload_tab.from_date_input.text().strip())
         self.settings.setValue("upload/to_date", self.upload_tab.to_date_input.text().strip())
@@ -474,6 +484,7 @@ class MainWindow(QMainWindow):
         self.upload_tab.load_queue_records([])
         self.upload_tab.load_duplicate_records([])
         self._clear_upload_notice()
+        self.upload_tab.clear_requester_notice()
         self._sync_upload_summary(manifest_name=Path(path).name if path else "-", run_id="-")
         if path:
             self.upload_tab.set_ui_state("loading_queue")
@@ -483,6 +494,15 @@ class MainWindow(QMainWindow):
         else:
             self.upload_tab.set_ui_state("no_manifest")
             self.upload_tab.set_compare_status("", False)
+
+    @pyqtSlot(str)
+    def _on_requester_sheet_url_changed(self, url: str) -> None:
+        if self._restoring_settings:
+            return
+        self.async_log.emit(f"[UPLOAD][INPUT] Cap nhat link doi chieu requester: {url or '(trong)'}")
+        self.upload_tab.clear_requester_notice()
+        if self.upload_tab.get_manifest_path() and not self._upload_running:
+            self._on_upload_refresh_queue()
 
     @pyqtSlot(str)
     def _on_export_path_changed(self, path: str) -> None:
@@ -528,8 +548,20 @@ class MainWindow(QMainWindow):
         self._clear_upload_notice()
         self.async_log.emit(f"[UPLOAD][QUEUE] Bắt đầu nạp queue từ manifest: {manifest_path}")
 
+        requester_lookup, requester_warning = load_requester_contract_lookup(
+            working_dir=self.working_dir,
+            sheet_url=self.upload_tab.get_requester_sheet_url(),
+            log_callback=self.async_log.emit,
+        )
+        if requester_warning:
+            self.upload_tab.set_requester_notice(requester_warning, level="warning")
+
         try:
-            manifest, records, total_pending = load_upload_queue(manifest_path, working_dir=self.working_dir)
+            manifest, records, total_pending = load_upload_queue(
+                manifest_path,
+                working_dir=self.working_dir,
+                requester_lookup=requester_lookup,
+            )
         except Exception as exc:
             self.upload_tab.load_queue_records([])
             self.upload_tab.load_duplicate_records([])
@@ -543,6 +575,8 @@ class MainWindow(QMainWindow):
             return
 
         self.upload_tab.clear_manifest_notice()
+        if not requester_warning:
+            self.upload_tab.clear_requester_notice()
         self.async_log.emit(
             f"[UPLOAD][QUEUE] Đã đọc manifest run_id={manifest.get('run_id')} | records={len(records)} | pending={total_pending}"
         )
@@ -793,6 +827,7 @@ class MainWindow(QMainWindow):
         self.upload_worker.set_config(
             manifest_path=manifest_path,
             exclude_contract_nos=self._existing_web_contract_nos,
+            requester_sheet_url=self.upload_tab.get_requester_sheet_url(),
             working_dir=self.working_dir,
         )
         self.upload_worker.start()

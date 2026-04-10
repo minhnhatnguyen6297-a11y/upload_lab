@@ -52,6 +52,7 @@ class UploadTab(QWidget):
     finalize_records = pyqtSignal(list)
     download_web_export = pyqtSignal(tuple)
     manifest_path_changed = pyqtSignal(str)
+    requester_sheet_url_changed = pyqtSignal(str)
     export_path_changed = pyqtSignal(str)
     open_source_requested = pyqtSignal(int)
     open_path_requested = pyqtSignal(str)
@@ -96,6 +97,23 @@ class UploadTab(QWidget):
         self.manifest_notice.setVisible(False)
         data_layout.addWidget(self.manifest_notice, 1, 0, 1, 2)
 
+        requester_frame = QFrame()
+        requester_layout = QVBoxLayout(requester_frame)
+        requester_layout.setContentsMargins(0, 0, 0, 0)
+        requester_layout.setSpacing(6)
+        requester_layout.addWidget(QLabel("Link doi chieu nguoi yeu cau cong chung"))
+        self.requester_sheet_input = QLineEdit()
+        self.requester_sheet_input.setPlaceholderText("Dan link Google Sheet doi chieu nguoi yeu cau cong chung")
+        self.requester_sheet_input.editingFinished.connect(self._emit_requester_sheet_url_changed)
+        requester_layout.addWidget(self.requester_sheet_input)
+        data_layout.addWidget(requester_frame, 2, 0, 1, 2)
+
+        self.requester_notice = QLabel("")
+        self.requester_notice.setObjectName("inlineNotice")
+        self.requester_notice.setWordWrap(True)
+        self.requester_notice.setVisible(False)
+        data_layout.addWidget(self.requester_notice, 3, 0, 1, 2)
+
         self.export_browser = FileBrowserWidget(
             label_text="Excel đối chiếu số công chứng",
             button_text="Chọn Excel",
@@ -105,13 +123,13 @@ class UploadTab(QWidget):
         )
         self.export_browser.browse_btn.setFixedWidth(150)
         self.export_browser.file_changed.connect(self.export_path_changed.emit)
-        data_layout.addWidget(self.export_browser, 2, 0, 1, 2)
+        data_layout.addWidget(self.export_browser, 4, 0, 1, 2)
 
         self.export_notice = QLabel("")
         self.export_notice.setObjectName("inlineNotice")
         self.export_notice.setWordWrap(True)
         self.export_notice.setVisible(False)
-        data_layout.addWidget(self.export_notice, 3, 0, 1, 2)
+        data_layout.addWidget(self.export_notice, 5, 0, 1, 2)
 
         web_group = QFrame()
         web_group_layout = QHBoxLayout(web_group)
@@ -130,19 +148,19 @@ class UploadTab(QWidget):
         self.download_btn.clicked.connect(self._on_download_clicked)
         web_group_layout.addWidget(self.download_btn)
         web_group_layout.addStretch(1)
-        data_layout.addWidget(web_group, 4, 0, 1, 2)
+        data_layout.addWidget(web_group, 6, 0, 1, 2)
 
         self.runtime_label = QLabel("Chưa kiểm tra khả năng kết nối web.")
         self.runtime_label.setObjectName("inlineNotice")
         self.runtime_label.setWordWrap(True)
         self.runtime_label.setVisible(False)
-        data_layout.addWidget(self.runtime_label, 5, 0)
+        data_layout.addWidget(self.runtime_label, 7, 0)
 
         self.compare_label = QLabel("Chưa nạp dữ liệu đối chiếu.")
         self.compare_label.setObjectName("inlineNotice")
         self.compare_label.setWordWrap(True)
         self.compare_label.setVisible(False)
-        data_layout.addWidget(self.compare_label, 5, 1)
+        data_layout.addWidget(self.compare_label, 7, 1)
         root.addWidget(data_group)
 
         action_frame = QFrame()
@@ -509,6 +527,9 @@ class UploadTab(QWidget):
         self.clear_notice()
         self.download_web_export.emit((from_date, to_date))
 
+    def _emit_requester_sheet_url_changed(self) -> None:
+        self.requester_sheet_url_changed.emit(self.get_requester_sheet_url())
+
     def _on_start_clicked(self) -> None:
         manifest = self.get_manifest_path()
         if not manifest:
@@ -557,6 +578,20 @@ class UploadTab(QWidget):
         self.manifest_notice.style().polish(self.manifest_notice)
         self.manifest_notice.setVisible(False)
 
+    def set_requester_notice(self, text: str, *, level: str = "warning") -> None:
+        self.requester_notice.setText(text)
+        self.requester_notice.setProperty("noticeLevel", level)
+        self.requester_notice.style().unpolish(self.requester_notice)
+        self.requester_notice.style().polish(self.requester_notice)
+        self.requester_notice.setVisible(bool(text))
+
+    def clear_requester_notice(self) -> None:
+        self.requester_notice.clear()
+        self.requester_notice.setProperty("noticeLevel", "info")
+        self.requester_notice.style().unpolish(self.requester_notice)
+        self.requester_notice.style().polish(self.requester_notice)
+        self.requester_notice.setVisible(False)
+
     def set_export_notice(self, text: str, *, level: str = "warning") -> None:
         self.export_notice.setText(text)
         self.export_notice.setProperty("noticeLevel", level)
@@ -576,6 +611,12 @@ class UploadTab(QWidget):
 
     def set_manifest_path(self, path: str) -> None:
         self.manifest_browser.set_file_path(path)
+
+    def get_requester_sheet_url(self) -> str:
+        return self.requester_sheet_input.text().strip()
+
+    def set_requester_sheet_url(self, url: str) -> None:
+        self.requester_sheet_input.setText(str(url or "").strip())
 
     def get_export_path(self) -> str:
         return self.export_browser.get_file_path()

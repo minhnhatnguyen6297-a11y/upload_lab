@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import csv
 import importlib
 from importlib import util as importlib_util
+import io
 import json
 import os
 import re
 import shutil
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import warnings
 from datetime import date, datetime
 from dataclasses import dataclass
@@ -76,6 +81,12 @@ PLAYWRIGHT_MISSING_MESSAGE = (
 )
 UPLOAD_LOG_PATH = BASE_DIR / "logs" / "playwright_uploader.log"
 DOWNLOADS_DIR = BASE_DIR / "downloads"
+DEFAULT_REQUESTER_SHEET_URL = (
+    "https://docs.google.com/spreadsheets/d/1EY5coR_BdMRK-xK6e8d2f1Vj5zr4HbLOqNrd1x89yLk/"
+    "edit?gid=1274078459#gid=1274078459"
+)
+REQUESTER_SHEET_CACHE_NAME = "requester_lookup_cache.csv"
+REQUESTER_SHEET_TIMEOUT_SECONDS = 20
 UPLOADER_ENV_KEYS = (
     "ND_BASE_URL",
     "ND_LOGIN_URL",
@@ -336,6 +347,216 @@ def normalize_contract_no_for_compare(value: str) -> str:
     return re.sub(r"\s+", "", text)
 
 
+def normalize_requester_sheet_csv_url(sheet_url: str) -> str:
+    raw_url = str(sheet_url or "").strip()
+    if not raw_url:
+        return ""
+
+    parsed = urllib.parse.urlparse(raw_url)
+    if not parsed.scheme or not parsed.netloc:
+        raise ValueError("Link doi chieu phai la link Google Sheet hop le.")
+
+    host = parsed.netloc.lower()
+    if "docs.google.com" not in host:
+        return raw_url
+
+    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", parsed.path)
+    if not match:
+        raise ValueError("Khong doc duoc ma Google Sheet tu link doi chieu.")
+
+    query = urllib.parse.parse_qs(parsed.query or "")
+    gid = str(query.get("gid", [""])[0] or "").strip()
+    if not gid and str(parsed.fragment or "").startswith("gid="):
+        gid = parsed.fragment.split("=", 1)[1].strip()
+    gid = gid or "0"
+    return f"https://docs.google.com/spreadsheets/d/{match.group(1)}/gviz/tq?tqx=out:csv&gid={gid}"
+
+
+def _extract_lookup_year(value: str) -> str:
+    text = str(value or "").strip()
+    match = re.search(r"(20\d{2})", text)
+    return match.group(1) if match else ""
+
+
+def build_requester_lookup_keys(contract_no: str, *, date_text: str = "") -> list[str]:
+    text = str(contract_no or "").strip()
+    match = re.search(r"(\d+)", text)
+    if not match:
+        return []
+
+    number_key = str(int(match.group(1)))
+    year = ""
+    year_match = re.search(r"/(20\d{2})(?:\D|$)", text)
+    if year_match:
+        year = year_match.group(1)
+    if not year:
+        year = _extract_lookup_year(date_text)
+
+    keys: list[str] = []
+    if year:
+        keys.append(f"{number_key}/{year}")
+    keys.append(number_key)
+    return keys
+
+
+def parse_requester_sheet_csv(csv_text: str) -> dict[str, str]:
+    content = str(csv_text or "").strip()
+    if not content:
+        return {}
+
+    reader = csv.DictReader(io.StringIO(content))
+    fieldnames = list(reader.fieldnames or [])
+    if not fieldnames:
+        return {}
+
+    def pick_field(*candidates: str) -> str:
+        for field in fieldnames:
+            folded = _fold_value(field)
+            if any(candidate in folded for candidate in candidates):
+                return field
+        return ""
+
+    contract_field = pick_field("so cc", "so cong chung")
+    requester_field = pick_field("ten khach hang", "nguoi yeu cau")
+    date_field = pick_field("ngay cc", "ngay cong chung")
+    if not contract_field or not requester_field:
+        return {}
+
+    lookup: dict[str, str] = {}
+    for row in reader:
+        contract_value = str(row.get(contract_field) or "").strip()
+        requester_name = str(row.get(requester_field) or "").strip()
+        date_value = str(row.get(date_field) or "").strip()
+        if not contract_value or not requester_name:
+            continue
+        for key in build_requester_lookup_keys(contract_value, date_text=date_value):
+            lookup.setdefault(key, requester_name)
+    return lookup
+
+
+def load_requester_contract_lookup(
+    *,
+    working_dir: Path = BASE_DIR,
+    sheet_url: str = "",
+    log_callback: Optional[Callable[[str], None]] = None,
+) -> tuple[dict[str, str], str | None]:
+    requested_url = str(sheet_url or "").strip()
+    if not requested_url:
+        return {}, None
+
+    try:
+        csv_url = normalize_requester_sheet_csv_url(requested_url)
+    except ValueError as exc:
+        return {}, str(exc)
+
+    cache_path = Path(working_dir) / DOWNLOADS_DIR.name / REQUESTER_SHEET_CACHE_NAME
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    logger = log_callback or _default_log
+    csv_text = ""
+    warning_text: str | None = None
+
+    request = urllib.request.Request(csv_url, headers={"User-Agent": "upload-lab/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=REQUESTER_SHEET_TIMEOUT_SECONDS) as response:
+            csv_bytes = response.read()
+        csv_text = csv_bytes.decode("utf-8-sig", errors="replace")
+        cache_path.write_text(csv_text, encoding="utf-8")
+        logger(f"[UPLOAD][REQUESTER] Tai lookup nguoi yeu cau OK: {csv_url}")
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        if cache_path.exists():
+            csv_text = cache_path.read_text(encoding="utf-8")
+            warning_text = "Khong tai duoc link doi chieu. Dang dung du lieu cache gan nhat."
+            logger(f"[UPLOAD][REQUESTER] Loi tai link doi chieu, dung cache {cache_path.name}: {exc}")
+        else:
+            warning_text = "Khong tai duoc link doi chieu nguoi yeu cau cong chung."
+            logger(f"[UPLOAD][REQUESTER] Loi tai link doi chieu: {exc}")
+            return {}, warning_text
+
+    lookup = parse_requester_sheet_csv(csv_text)
+    if not lookup:
+        return {}, warning_text or "Link doi chieu khong co du lieu hop le."
+
+    logger(f"[UPLOAD][REQUESTER] Da nap {len(lookup)} khoa doi chieu nguoi yeu cau.")
+    return lookup, warning_text
+
+
+def _normalize_person_name(value: str) -> str:
+    folded = _fold_value(value)
+    return re.sub(r"^(ong|ba|anh|chi)\s+", "", folded).strip()
+
+
+def _requester_name_matches(expected_name: str, actual_name: str) -> bool:
+    expected = _normalize_person_name(expected_name)
+    actual = _normalize_person_name(actual_name)
+    if not expected or not actual:
+        return False
+    return expected == actual or expected in actual or actual in expected
+
+
+def _format_requester_person(person: dict) -> str:
+    title = str(person.get("gioi_tinh") or "").strip()
+    name = str(person.get("ho_ten") or person.get("name") or "").strip()
+    first_line = " ".join(part for part in (title, name) if part).strip() or name
+    lines: list[str] = []
+    if first_line:
+        birthday = str(person.get("ngay_sinh") or "").strip()
+        if birthday:
+            first_line += f", sinh ngay: {birthday}"
+        lines.append(first_line)
+
+    cccd = str(person.get("cccd") or "").strip()
+    if cccd:
+        id_line = f"Can cuoc so: {cccd}"
+        issue_place = str(person.get("noi_cap") or "").strip()
+        issue_date = str(person.get("ngay_cap_cccd") or "").strip()
+        if issue_place and issue_date:
+            id_line += f" do {issue_place} cap ngay {issue_date}"
+        elif issue_place:
+            id_line += f" do {issue_place} cap"
+        elif issue_date:
+            id_line += f" cap ngay {issue_date}"
+        lines.append(id_line)
+
+    address_line = str(person.get("dia_chi_line") or "").strip(" ;")
+    if not address_line:
+        address_value = str(person.get("dia_chi") or "").strip(" ;")
+        if address_value:
+            address_line = f"Thuong tru tai: {address_value}"
+    if address_line:
+        lines.append(address_line)
+    return "\n".join(line for line in lines if line).strip()
+
+
+def resolve_requester_override(
+    payload: dict,
+    *,
+    contract_no: str,
+    requester_lookup: Optional[dict[str, str]] = None,
+) -> str:
+    lookup = dict(requester_lookup or {})
+    if not lookup:
+        return ""
+
+    web_form = dict(payload.get("web_form") or {})
+    raw = dict(payload.get("raw") or {})
+    date_text = str(web_form.get("ngay_cong_chung") or raw.get("ngay_cong_chung") or "").strip()
+    lookup_keys = build_requester_lookup_keys(contract_no or web_form.get("so_cong_chung", ""), date_text=date_text)
+    requester_name = next((lookup.get(key, "") for key in lookup_keys if lookup.get(key, "")), "")
+    requester_name = str(requester_name or "").strip()
+    if not requester_name:
+        return ""
+
+    for party_name in ("ben_a", "ben_b"):
+        party = dict(raw.get(party_name) or {})
+        for person in list(party.get("nguoi") or []):
+            person_name = str(person.get("ho_ten") or person.get("name") or person.get("raw_text") or "").strip()
+            if _requester_name_matches(requester_name, person_name):
+                formatted = _format_requester_person(person)
+                if formatted:
+                    return formatted
+    return requester_name
+
+
 def read_exported_contract_numbers(export_path: Path | str) -> set[str]:
     path = Path(export_path)
     if not path.exists():
@@ -450,6 +671,7 @@ def load_upload_queue(
     *,
     working_dir: Path = BASE_DIR,
     limit: Optional[int] = None,
+    requester_lookup: Optional[dict[str, str]] = None,
 ) -> tuple[dict, list[UploadRecord], int]:
     manifest = load_manifest(manifest_path)
     run_id = str(manifest.get("run_id") or "").strip()
@@ -469,7 +691,11 @@ def load_upload_queue(
         if not output_json_path.exists():
             continue
         payload = json.loads(output_json_path.read_text(encoding="utf-8"))
-        upload_form = build_upload_form_data(payload)
+        upload_form = build_upload_form_data(
+            payload,
+            contract_no=str(row_dict.get("contract_no") or ""),
+            requester_lookup=requester_lookup,
+        )
         source_file = Path(upload_form["file_hop_dong"])
         missing_fields = identify_missing_fields(upload_form)
         records.append(
@@ -504,19 +730,32 @@ def finalize_uploaded_records(record_ids: list[int], *, working_dir: Path = BASE
     return len(record_ids)
 
 
-def build_upload_form_data(payload: dict) -> dict:
+def build_upload_form_data(
+    payload: dict,
+    *,
+    contract_no: str = "",
+    requester_lookup: Optional[dict[str, str]] = None,
+) -> dict:
     web_form = dict(payload.get("web_form") or {})
     raw = dict(payload.get("raw") or {})
+    normalized_contract_no = normalize_web_contract_no(web_form.get("so_cong_chung") or contract_no or "")
     return {
         "ten_hop_dong": str(web_form.get("ten_hop_dong") or "").strip(),
         "ngay_cong_chung": str(web_form.get("ngay_cong_chung") or "").strip(),
-        "so_cong_chung": normalize_web_contract_no(web_form.get("so_cong_chung") or ""),
+        "so_cong_chung": normalized_contract_no,
         "tinh_trang": DEFAULT_STATUS_TEXT,
         "nhom_hop_dong": str(web_form.get("nhom_hop_dong") or "").strip(),
         "loai_tai_san": str(web_form.get("loai_tai_san") or "").strip(),
         "cong_chung_vien": str(web_form.get("cong_chung_vien") or "").strip(),
         "thu_ky": str(web_form.get("thu_ky") or "").strip(),
-        "nguoi_yeu_cau": str(web_form.get("nguoi_yeu_cau") or "").strip(),
+        "nguoi_yeu_cau": (
+            resolve_requester_override(
+                payload,
+                contract_no=normalized_contract_no or str(contract_no or "").strip(),
+                requester_lookup=requester_lookup,
+            )
+            or str(web_form.get("nguoi_yeu_cau") or "").strip()
+        ),
         "duong_su": str(web_form.get("duong_su") or "").strip(),
         "tai_san": str(web_form.get("tai_san") or "").strip(),
         "ghi_chu": DEFAULT_GHI_CHU,
@@ -653,31 +892,79 @@ class NamDinhUploaderSession:
                 return locator
         return None
 
+    def _locator_is_interactable(self, locator, kind: str) -> bool:
+        if locator is None:
+            return False
+        try:
+            if locator.count() == 0:
+                return False
+        except Exception:
+            return False
+
+        if kind == "file":
+            return True
+
+        try:
+            tag_name = str(locator.evaluate("(el) => (el.tagName || '').toLowerCase()") or "").lower()
+        except Exception:
+            tag_name = ""
+        try:
+            input_type = str(locator.evaluate("(el) => (el.getAttribute('type') || '').toLowerCase()") or "").lower()
+        except Exception:
+            input_type = ""
+        try:
+            role_name = str(locator.evaluate("(el) => (el.getAttribute('role') || '').toLowerCase()") or "").lower()
+        except Exception:
+            role_name = ""
+        try:
+            contenteditable = str(locator.evaluate("(el) => (el.getAttribute('contenteditable') || '').toLowerCase()") or "").lower()
+        except Exception:
+            contenteditable = ""
+        try:
+            disabled = bool(locator.evaluate("(el) => !!el.disabled || el.getAttribute('aria-disabled') === 'true'"))
+        except Exception:
+            disabled = False
+        try:
+            visible = bool(locator.is_visible())
+        except Exception:
+            visible = False
+
+        if disabled or input_type == "hidden":
+            return False
+        if tag_name == "select":
+            return True
+        if kind == "editor":
+            return visible or tag_name == "textarea" or contenteditable == "true" or role_name == "textbox"
+        if kind in {"text", "dropdown"}:
+            return visible or tag_name in {"input", "textarea"} or role_name in {"combobox", "textbox"}
+        return visible or tag_name in {"input", "textarea"}
+
     def _resolve_control_locator(self, page, field_name: str, *, dynamic_text: str = ""):
         conf = FORM_SELECTORS[field_name]
+        kind = conf.get("kind", "")
         for index, strategy in enumerate(conf.get("strategies", []), start=1):
             locator = self._locator_from_strategy(page, strategy, dynamic_text=dynamic_text)
-            if locator is not None and locator.count() > 0:
+            if locator is not None and self._locator_is_interactable(locator, kind):
                 return locator, f"strategy#{index}:{strategy.get('type')}"
 
         label = conf.get("label", "")
-        kind = conf.get("kind")
         label_locator = self._find_label_locator(page, label)
         if label_locator is None or label_locator.count() == 0:
             return None, f"label_not_found:{label}"
 
         if kind in {"text", "dropdown"}:
             locator = label_locator.locator(
-                "xpath=following::*[self::input and not(@type='hidden') and not(@type='file')][1]"
+                "xpath=following::*[(self::input and not(@type='hidden') and not(@type='file')) "
+                "or self::textarea or self::select or @role='combobox' or @role='textbox' or @contenteditable='true'][1]"
             ).first
-            if locator.count() > 0:
+            if self._locator_is_interactable(locator, kind):
                 return locator, "label_following_input"
         if kind == "editor":
             editable = label_locator.locator("xpath=following::*[@contenteditable='true'][1]").first
-            if editable.count() > 0:
+            if self._locator_is_interactable(editable, kind):
                 return editable, "label_following_editor"
             textarea = label_locator.locator("xpath=following::*[self::textarea][1]").first
-            if textarea.count() > 0:
+            if self._locator_is_interactable(textarea, kind):
                 return textarea, "label_following_textarea"
         if kind == "file":
             locator = label_locator.locator("xpath=following::*[self::input and @type='file'][1]").first
@@ -845,6 +1132,29 @@ class NamDinhUploaderSession:
             tag_name = locator.evaluate("(el) => el.tagName.toLowerCase()")
         except Exception:
             tag_name = ""
+        if str(tag_name).lower() == "select":
+            last_error = ""
+            for candidate in candidates:
+                try:
+                    locator.select_option(label=candidate)
+                    page.wait_for_timeout(150)
+                    try:
+                        locator.press("Tab")
+                    except Exception:
+                        pass
+                    actual = self._read_field_value(page, field_name).strip()
+                    if field_value_matches(field_name, candidate, actual):
+                        self.log(f"[UPLOAD][FIELD] {field_name}: select filled via {source} using {candidate!r}")
+                        return True
+                    last_error = f"select_not_stuck expected={candidate!r} actual={actual!r}"
+                except Exception as exc:
+                    last_error = str(exc)
+                    self.log(
+                        f"[UPLOAD][FIELD] {field_name}: select_option failed via {source} with {candidate!r}: {exc}"
+                    )
+            self.log(f"[UPLOAD][FIELD] {field_name}: dropdown fill failed via {source}: {last_error}")
+            return False
+
         current_text = self._read_field_value(page, field_name).strip()
         if tag_name != "input" and field_value_matches(field_name, value, current_text):
             self.log(f"[UPLOAD][FIELD] {field_name}: already set via {source}")
@@ -881,6 +1191,13 @@ class NamDinhUploaderSession:
                 option.click()
             else:
                 locator.press("Enter")
+            try:
+                locator.press("Tab")
+            except Exception:
+                try:
+                    page.keyboard.press("Tab")
+                except Exception:
+                    pass
             page.wait_for_timeout(200)
 
             actual = self._read_field_value(page, field_name).strip()
@@ -977,6 +1294,37 @@ class NamDinhUploaderSession:
         except Exception:
             return ""
 
+    def _read_field_validation_error(self, page, field_name: str) -> str:
+        label = str(FORM_SELECTORS.get(field_name, {}).get("label") or "").strip()
+        if not label:
+            return ""
+        label_locator = self._find_label_locator(page, label)
+        if label_locator is None or label_locator.count() == 0:
+            return ""
+
+        scopes = [
+            label_locator.locator("xpath=ancestor::*[contains(@class,'Field-container')][1]").first,
+            label_locator.locator("xpath=ancestor::div[1]").first,
+        ]
+        seen: set[str] = set()
+        for scope in scopes:
+            try:
+                if scope.count() == 0:
+                    continue
+                texts = scope.locator(
+                    "xpath=.//*[self::small or self::p or self::div or self::span][normalize-space()]"
+                ).all_text_contents()
+            except Exception:
+                continue
+            for text in texts:
+                normalized = _fold_value(text)
+                if not normalized or normalized in seen:
+                    continue
+                seen.add(normalized)
+                if "khong duoc de trong" in normalized or "bat buoc" in normalized:
+                    return str(text or "").strip()
+        return ""
+
     def _verify_record(self, page, record: UploadRecord) -> tuple[dict, bool]:
         verify_data = {"missing_fields": list(record.missing_fields), "fields": {}}
         partial = bool(record.missing_fields)
@@ -994,14 +1342,19 @@ class NamDinhUploaderSession:
                     success = field_value_matches(field_name, expected_value, actual)
                 else:
                     success = expected_value.lower() in str(actual or "").lower()
+            validation_error = self._read_field_validation_error(page, field_name)
+            if validation_error:
+                success = False
             verify_data["fields"][field_name] = {
                 "expected": expected_value,
                 "actual": actual,
                 "success": success,
+                "validation_error": validation_error,
             }
             self.log(
                 f"[UPLOAD][VERIFY] {record.contract_no} {field_name}: "
                 f"expected={expected_value!r} actual={actual!r} success={success}"
+                + (f" validation_error={validation_error!r}" if validation_error else "")
             )
             if not success:
                 partial = True
@@ -1066,6 +1419,7 @@ class NamDinhUploaderSession:
         stop_event,
         *,
         exclude_contract_nos: Optional[set[str]] = None,
+        requester_sheet_url: str = "",
         progress_callback: Optional[Callable[[dict], None]] = None,
     ) -> dict:
         def emit_progress(event: str, **payload: object) -> None:
@@ -1078,9 +1432,18 @@ class NamDinhUploaderSession:
                 # UI progress updates must not break the uploader flow.
                 pass
 
+        requester_lookup, requester_warning = load_requester_contract_lookup(
+            working_dir=self.working_dir,
+            sheet_url=requester_sheet_url,
+            log_callback=self.log,
+        )
+        if requester_warning:
+            self.log(f"[UPLOAD][REQUESTER] {requester_warning}")
+
         manifest, records, total_pending = load_upload_queue(
             manifest_path,
             working_dir=self.working_dir,
+            requester_lookup=requester_lookup,
         )
         run_id = str(manifest["run_id"])
         filtered_records, duplicate_records = split_records_by_existing_contract_nos(

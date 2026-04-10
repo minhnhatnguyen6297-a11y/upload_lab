@@ -14,12 +14,14 @@ from openpyxl import Workbook
 from batch_scan import connect_registry, get_row_by_id, upsert_registry_record
 from playwright_uploader import (
     NamDinhUploaderSession,
+    build_upload_form_data,
     field_value_matches,
     finalize_uploaded_records,
     get_uploader_setup_status,
     get_field_value_candidates,
     load_upload_queue,
     load_uploader_settings,
+    parse_requester_sheet_csv,
     read_exported_contract_numbers,
     save_uploader_env,
     split_records_by_existing_contract_nos,
@@ -47,6 +49,48 @@ def make_output_json(path: Path, *, contract_no: str, file_goc: str, ten_hop_don
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
+
+
+class _EmptyLocator:
+    @property
+    def first(self):
+        return self
+
+    def count(self):
+        return 0
+
+
+class _FakeSelectLocator:
+    def __init__(self, accepted_label: str):
+        self.accepted_label = accepted_label
+        self.selected_label = ""
+
+    def count(self):
+        return 1
+
+    def evaluate(self, script: str):
+        if "tagName" in script:
+            return "select"
+        if "type" in script:
+            return ""
+        if "role" in script:
+            return ""
+        if "contenteditable" in script:
+            return ""
+        if "aria-disabled" in script:
+            return False
+        return ""
+
+    def is_visible(self):
+        return True
+
+    def select_option(self, *, label: str):
+        if label != self.accepted_label:
+            raise ValueError("unexpected option")
+        self.selected_label = label
+
+    def press(self, _key: str):
+        return None
 
 
 class PlaywrightUploaderQueueTests(unittest.TestCase):
@@ -138,6 +182,66 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
         self.assertTrue(
             field_value_matches("nhom_hop_dong", "Cam kết - Thỏa thuận", "Thoả thuận - Cam kết")
         )
+
+    def test_parse_requester_sheet_csv_builds_lookup_keys(self):
+        csv_text = (
+            '"STT","Số CC","Ngày CC","Tên khách hàng"\n'
+            '"","11","7/1/2026","Phùng Đình Việt"\n'
+            '"","405","09/04/2026","Nguyễn Thị Hoa"\n'
+        )
+
+        lookup = parse_requester_sheet_csv(csv_text)
+
+        self.assertEqual(lookup["11"], "Phùng Đình Việt")
+        self.assertEqual(lookup["11/2026"], "Phùng Đình Việt")
+        self.assertEqual(lookup["405/2026"], "Nguyễn Thị Hoa")
+
+    def test_build_upload_form_data_overrides_requester_from_lookup(self):
+        payload = {
+            "web_form": {
+                "ten_hop_dong": "Hợp đồng chuyển nhượng",
+                "ngay_cong_chung": "09/04/2026",
+                "so_cong_chung": "405/2026/CCGD",
+                "nhom_hop_dong": "Chuyển nhượng - Mua bán",
+                "loai_tai_san": "Đất đai không có tài sản",
+                "nguoi_yeu_cau": "Ông A",
+                "duong_su": "BÊN A ...",
+                "tai_san": "Thửa đất ...",
+            },
+            "raw": {
+                "file_goc": str(self.root / "goc_lookup.docx"),
+                "ben_b": {
+                    "nguoi": [
+                        {
+                            "gioi_tinh": "Ông",
+                            "ho_ten": "Nguyễn Văn B",
+                            "ngay_sinh": "01/01/1980",
+                            "cccd": "012345678901",
+                            "noi_cap": "CA Nam Định",
+                            "ngay_cap_cccd": "01/01/2024",
+                            "dia_chi": "xã A, huyện B",
+                        },
+                        {
+                            "gioi_tinh": "Bà",
+                            "ho_ten": "Nguyễn Thị Hoa",
+                            "ngay_sinh": "02/02/1985",
+                            "cccd": "123456789012",
+                            "noi_cap": "CA Nam Định",
+                            "ngay_cap_cccd": "02/02/2024",
+                            "dia_chi": "xã C, huyện D",
+                        },
+                    ]
+                },
+            },
+        }
+
+        form_data = build_upload_form_data(
+            payload,
+            requester_lookup={"405/2026": "Nguyễn Thị Hoa"},
+        )
+
+        self.assertIn("Nguyễn Thị Hoa", form_data["nguoi_yeu_cau"])
+        self.assertIn("Can cuoc so:", form_data["nguoi_yeu_cau"])
 
     def test_read_exported_contract_numbers_reads_column_a(self):
         export_path = self.root / "So_cong_chung.xlsx"
@@ -276,7 +380,11 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
             base_dir=self.workdir,
         )
         (self.workdir / "nd_storage_state.json").write_text("{}", encoding="utf-8")
-        session = NamDinhUploaderSession(load_uploader_settings(self.workdir), working_dir=self.workdir)
+        session = NamDinhUploaderSession(
+            load_uploader_settings(self.workdir),
+            working_dir=self.workdir,
+            log_callback=lambda _msg: None,
+        )
 
         def fake_prepare(record, artifact_dir):
             contract_key = record.contract_no.replace("/", "_")
@@ -319,6 +427,27 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
         self.assertEqual(row["status"], "prepared_dry_run")
         self.assertTrue(row["artifact_dir"])
         self.assertTrue(json.loads(row["verify_json"]))
+
+    def test_fill_dropdown_supports_native_select(self):
+        session = NamDinhUploaderSession(
+            load_uploader_settings(self.workdir),
+            working_dir=self.workdir,
+            log_callback=lambda _msg: None,
+        )
+        locator = _FakeSelectLocator("Hợp đồng chuyển nhượng")
+        page = SimpleNamespace(
+            wait_for_timeout=lambda _ms: None,
+            keyboard=SimpleNamespace(press=lambda _key: None),
+            get_by_role=lambda *args, **kwargs: _EmptyLocator(),
+            get_by_text=lambda *args, **kwargs: _EmptyLocator(),
+        )
+
+        with patch.object(session, "_resolve_control_locator", return_value=(locator, "fake_select")), patch.object(
+            session,
+            "_read_field_value",
+            side_effect=lambda *_args, **_kwargs: locator.selected_label,
+        ):
+            self.assertTrue(session._fill_dropdown(page, "ten_hop_dong", "Hợp đồng chuyển nhượng"))
 
 
 if __name__ == "__main__":

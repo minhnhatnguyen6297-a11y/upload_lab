@@ -91,6 +91,7 @@ class PyQt6SmokeTests(unittest.TestCase):
                 "get_uploader_setup_status",
                 return_value={"ready": True, "message": "Uploader đã sẵn sàng.", "values": {}},
             ),
+            patch.object(main_window_module, "load_requester_contract_lookup", return_value=({}, None)),
             patch.object(main_window_module, "load_upload_queue", return_value=({"run_id": "run-ui"}, self.records, 3)),
             patch.object(main_window_module, "read_exported_contract_numbers", return_value={"300/2026"}),
         ]
@@ -108,6 +109,7 @@ class PyQt6SmokeTests(unittest.TestCase):
         self.assertTrue(self.window.log_viewer.is_collapsed())
         self.assertGreaterEqual(self.window.minimumWidth(), 980)
         self.assertGreaterEqual(self.window.batch_tab.minimumWidth(), 960)
+        self.assertIn("docs.google.com", self.window.upload_tab.get_requester_sheet_url())
 
         self.window.upload_tab.set_manifest_path(str(self.manifest_path))
         self.window.upload_tab.set_export_path(str(self.export_path))

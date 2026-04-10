@@ -26,6 +26,7 @@ class UploadWorker(QThread):
         super().__init__(parent)
         self.manifest_path: Optional[Path] = None
         self.exclude_contract_nos: Set[str] = set()
+        self.requester_sheet_url: str = ""
         self.working_dir: Path = Path.cwd()
         self._stop_event = Event()
         self.session: Optional[NamDinhUploaderSession] = None
@@ -34,10 +35,12 @@ class UploadWorker(QThread):
         self,
         manifest_path: str,
         exclude_contract_nos: Optional[Set[str]] = None,
+        requester_sheet_url: str = "",
         working_dir: Optional[Path] = None,
     ) -> None:
         self.manifest_path = Path(manifest_path)
         self.exclude_contract_nos = set(exclude_contract_nos or set())
+        self.requester_sheet_url = str(requester_sheet_url or "").strip()
         if working_dir is not None:
             self.working_dir = working_dir
         self._stop_event = Event()
@@ -60,6 +63,7 @@ class UploadWorker(QThread):
                 self.manifest_path,
                 self._stop_event,
                 exclude_contract_nos=self.exclude_contract_nos,
+                requester_sheet_url=self.requester_sheet_url,
                 progress_callback=self.progress.emit,
             )
             self.finished.emit(summary)
