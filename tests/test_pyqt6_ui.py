@@ -121,10 +121,13 @@ class PyQt6SmokeTests(unittest.TestCase):
         self.assertEqual(self.window.upload_tab.duplicate_table.proxy_model.rowCount(), 1)
         self.assertEqual(self.window.upload_tab.overview_labels["record_id"].text(), "101")
         self.assertEqual(self.window.upload_tab.start_btn.text(), "Upload")
+        self.assertEqual(self.window.upload_tab.status_filter.findData("prepared_closed"), -1)
+        self.assertEqual(self.window.upload_tab.status_filter.findData("prepared_closed_partial"), -1)
 
         self.window.upload_tab.queue_table.set_record_checked(101, True)
         self.app.processEvents()
         self.assertIn("(1)", self.window.upload_tab.finalize_btn.text())
+        self.assertTrue(self.window.upload_tab.finalize_btn.isEnabled())
 
         self.window.upload_tab.search_input.setText("147/2026")
         self.app.processEvents()

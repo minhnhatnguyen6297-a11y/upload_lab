@@ -872,7 +872,7 @@ class MainWindow(QMainWindow):
                 f"[UPLOAD][RUN] Đang xử lý record #{info.get('record_id')} | số={info.get('contract_no', '')} | còn lại={info.get('remaining', 0)}"
             )
         elif event == "record_prepared":
-            self.statusBar().showMessage(f"Đã upload nháp {info.get('contract_no', '')}")
+            self.statusBar().showMessage(f"Đã điền nháp {info.get('contract_no', '')}, chờ rà soát")
             self.async_log.emit(
                 f"[UPLOAD][RUN] Hoàn tất hồ sơ {info.get('contract_no', '')} | trạng thái={info.get('status', '')} | còn lại={info.get('remaining', 0)}"
             )
@@ -905,7 +905,7 @@ class MainWindow(QMainWindow):
             self.upload_tab.set_ui_state("dry_run_stopped")
             self.statusBar().showMessage("Đã dừng upload")
         else:
-            self.statusBar().showMessage("Đã upload xong")
+            self.statusBar().showMessage("Đã điền xong, chờ lưu thủ công trên web")
             if self._queue_rows_by_id:
                 if any(bool(row.get("needs_manual_review")) for row in self._queue_rows_by_id.values()):
                     self.upload_tab.set_ui_state("has_partial")
@@ -918,21 +918,21 @@ class MainWindow(QMainWindow):
         if error_count:
             level = "warning"
             message = (
-                f"Đã upload {summary.get('prepared_count', 0)} hồ sơ. "
-                f"Có {error_count} hồ sơ cần kiểm tra lại trong danh sách và log."
+                f"Đã điền nháp {summary.get('prepared_count', 0)} hồ sơ. "
+                f"Có {error_count} hồ sơ cần kiểm tra lại trong danh sách và log trước khi bấm Lưu."
             )
         else:
             level = "success"
             message = (
-                f"Đã upload {summary.get('prepared_count', 0)} hồ sơ. "
-                "Bạn có thể rà soát rồi xác nhận đã upload."
+                f"Đã điền nháp {summary.get('prepared_count', 0)} hồ sơ. "
+                "Trình duyệt vẫn mở để bạn rà soát, bấm Lưu rồi quay lại xác nhận upload."
             )
         if summary.get("artifact_dir"):
             message += f" Artifact mới: {summary.get('artifact_dir')}"
         self._notify_upload(
             message,
             level=level,
-            status_message="Upload hoàn tất",
+            status_message="Chờ rà soát và lưu thủ công",
         )
 
     @pyqtSlot(str)

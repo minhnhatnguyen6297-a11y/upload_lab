@@ -336,7 +336,10 @@ def sanitize_contract_no(value: str) -> str:
 
 
 def normalize_web_contract_no(value: str) -> str:
-    text = str(value or "").strip().upper()
+    text = re.sub(r"\s+", "", str(value or "").strip().upper())
+    match = re.match(r"^(\d+)[./](\d{4})(?:/[A-Z0-9]+)*(?:/CCGD)?$", text)
+    if match:
+        return f"{match.group(1)}/{match.group(2)}"
     if text.endswith("/CCGD"):
         text = text[:-5]
     return text

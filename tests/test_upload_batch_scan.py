@@ -100,6 +100,31 @@ class UploadBatchScanTests(unittest.TestCase):
         self.assertEqual(payload["raw"]["scan_contract_no"], "")
         self.assertEqual(payload["web_form"]["so_cong_chung"], "")
 
+    def test_scan_docx_for_contract_no_supports_inheritance_code_suffixes(self):
+        docx_path = make_docx(
+            self.root / "phan_chia_di_san.docx",
+            "VĂN BẢN PHÂN CHIA DI SẢN",
+            "LỜI CHỨNG",
+            "Số công chứng 2433.2025/PCDS/CCGD.",
+        )
+
+        result = scan_docx_for_contract_no(docx_path)
+
+        self.assertTrue(result["is_contract"])
+        self.assertEqual(result["contract_no"], "2433/2025/PCDS/CCGD")
+
+    def test_extract_shortens_web_contract_no_for_inheritance_code_suffixes(self):
+        docx_path = make_docx(
+            self.root / "tu_choi_di_san.docx",
+            "VĂN BẢN TỪ CHỐI NHẬN DI SẢN",
+            "Số công chứng 2233.2025/TCDS/CCGD.",
+        )
+
+        payload = extract(docx_path)
+
+        self.assertEqual(payload["raw"]["scan_contract_no"], "2233/2025/TCDS/CCGD")
+        self.assertEqual(payload["web_form"]["so_cong_chung"], "2233/2025")
+
     def test_find_tai_san_uses_common_qsdd_anchor_for_transfer(self):
         text = "\n".join(
             [

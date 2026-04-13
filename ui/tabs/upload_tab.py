@@ -33,12 +33,12 @@ STATE_MESSAGES = {
     "manifest_selected_unloaded": "Đã chọn manifest. Danh sách hồ sơ sẽ được nạp tự động.",
     "loading_queue": "Đang nạp danh sách hồ sơ từ manifest.",
     "queue_empty": "Hiện chưa còn hồ sơ nào cần xử lý trong manifest này.",
-    "queue_ready": "Danh sách hồ sơ đã sẵn sàng để thao tác.",
-    "dry_run_running": "Phần mềm đang upload hồ sơ lên web.",
-    "dry_run_stopped": "Đã dừng sau hồ sơ hiện tại. Bạn có thể kiểm tra rồi upload tiếp.",
-    "has_partial": "Có hồ sơ cần kiểm tra lại trước khi xác nhận đã upload.",
+    "queue_ready": "Danh sách hồ sơ đã sẵn sàng để điền và rà soát.",
+    "dry_run_running": "Phần mềm đang điền dữ liệu lên web.",
+    "dry_run_stopped": "Đã dừng sau hồ sơ hiện tại. Bạn có thể rà soát rồi tiếp tục.",
+    "has_partial": "Có hồ sơ cần kiểm tra lại trước khi bấm Lưu và xác nhận upload.",
     "error": "Một thao tác chưa hoàn tất. Xem ghi chú bên dưới để biết cần xử lý gì.",
-    "finalize_success": "Đã cập nhật trạng thái cho các hồ sơ đã chọn.",
+    "finalize_success": "Đã xác nhận các hồ sơ bạn đã lưu trên web.",
 }
 
 
@@ -393,6 +393,7 @@ class UploadTab(QWidget):
         for record_id, row in list(self._queue_rows.items()):
             row["selected"] = record_id in record_ids
         self.finalize_btn.setText(f"Xác nhận upload ({len(record_ids)})")
+        self._apply_button_state()
         if self.only_selected_check.isChecked():
             self._apply_queue_filters()
 

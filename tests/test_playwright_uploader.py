@@ -21,6 +21,7 @@ from playwright_uploader import (
     get_field_value_candidates,
     load_upload_queue,
     load_uploader_settings,
+    normalize_contract_no_for_compare,
     parse_requester_sheet_csv,
     read_exported_contract_numbers,
     save_uploader_env,
@@ -91,6 +92,33 @@ class _FakeSelectLocator:
 
     def press(self, _key: str):
         return None
+
+
+class _FakePreparePage:
+    def __init__(self):
+        self.url = "https://example.test/create"
+        self.goto_calls: list[tuple[str, str | None]] = []
+        self.wait_states: list[str] = []
+        self.wait_timeouts: list[int] = []
+        self.screenshots: list[tuple[str, bool]] = []
+        self.close_calls = 0
+
+    def goto(self, url: str, wait_until: str | None = None):
+        self.url = url
+        self.goto_calls.append((url, wait_until))
+
+    def wait_for_load_state(self, state: str):
+        self.wait_states.append(state)
+
+    def wait_for_timeout(self, timeout_ms: int):
+        self.wait_timeouts.append(int(timeout_ms))
+
+    def screenshot(self, *, path: str, full_page: bool = False):
+        Path(path).write_text("img", encoding="utf-8")
+        self.screenshots.append((path, full_page))
+
+    def close(self):
+        self.close_calls += 1
 
 
 class PlaywrightUploaderQueueTests(unittest.TestCase):
@@ -280,6 +308,10 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
         self.assertEqual([record.contract_no for record in duplicates], ["405/2026/CCGD"])
         self.assertEqual([record.contract_no for record in filtered], ["999/2026/CCGD"])
 
+    def test_normalize_contract_no_for_compare_strips_inheritance_suffixes(self):
+        self.assertEqual(normalize_contract_no_for_compare("2233/2025/TCDS/CCGD"), "2233/2025")
+        self.assertEqual(normalize_contract_no_for_compare("2433.2025/PCDS/CCGD"), "2433/2025")
+
     def test_save_and_load_uploader_env_roundtrip(self):
         save_uploader_env(
             {
@@ -425,8 +457,75 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
 
         row = get_row_by_id(self.conn, record_id)
         self.assertEqual(row["status"], "prepared_dry_run")
+        self.assertEqual(row["reason"], "Dry-run prepared")
         self.assertTrue(row["artifact_dir"])
         self.assertTrue(json.loads(row["verify_json"]))
+        self.assertIn("Hay ra soat, luu, finalize", summary["message"])
+        self.assertNotIn("dong browser", summary["message"])
+
+    def test_prepare_record_keeps_page_open_for_manual_review(self):
+        source_path = self.root / "prepare_keep_open.docx"
+        source_path.write_text("dummy", encoding="utf-8")
+        artifact_dir = self.workdir / "upload_runs" / "keep_open"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+
+        save_uploader_env(
+            {
+                "ND_BASE_URL": "https://example.test",
+                "ND_LOGIN_URL": "https://example.test/login",
+                "ND_CREATE_URL": "https://example.test/create",
+                "ND_USERNAME": "operator",
+                "ND_PASSWORD": "secret",
+                "ND_STORAGE_STATE_PATH": "nd_storage_state.json",
+                "ND_POST_PREPARE_DELAY_MS": "0",
+            },
+            base_dir=self.workdir,
+        )
+        (self.workdir / "nd_storage_state.json").write_text("{}", encoding="utf-8")
+
+        session = NamDinhUploaderSession(
+            load_uploader_settings(self.workdir),
+            working_dir=self.workdir,
+            log_callback=lambda _msg: None,
+        )
+
+        page = _FakePreparePage()
+        session.context = SimpleNamespace(new_page=lambda: page)
+        record = SimpleNamespace(
+            contract_no="888/2026/CCGD",
+            source_file=source_path,
+            upload_form={
+                "so_cong_chung": "888/2026/CCGD",
+                "ten_hop_dong": "Hợp đồng demo",
+                "nhom_hop_dong": "Chuyển nhượng - Mua bán",
+                "loai_tai_san": "Đất đai không có tài sản",
+                "tai_san": "Thửa đất demo",
+            },
+        )
+
+        with patch.object(session, "_is_login_page", return_value=False), patch.object(
+            session,
+            "_fill_text",
+            return_value=True,
+        ), patch.object(
+            session,
+            "_fill_dropdown",
+            return_value=True,
+        ), patch.object(
+            session,
+            "_fill_editor",
+            return_value=True,
+        ), patch.object(
+            session,
+            "_verify_record",
+            return_value=({"fields": {"so_cong_chung": {"success": True}}}, False),
+        ):
+            result = session._prepare_record(record, artifact_dir)
+
+        self.assertEqual(result["status"], "prepared_dry_run")
+        self.assertEqual(page.close_calls, 0)
+        self.assertTrue(Path(result["screenshot"]).exists())
+        self.assertTrue(Path(result["debug_json"]).exists())
 
     def test_fill_dropdown_supports_native_select(self):
         session = NamDinhUploaderSession(

@@ -30,7 +30,7 @@ from typing import Iterable
 DEFAULT_CCV = "Phạm Minh Chi"
 DEFAULT_THU_KY = "Nguyễn Nhật Minh"
 CONTRACT_YEAR = "2026"
-CONTRACT_NO_REGEX = re.compile(rf"\b(\d+/{re.escape(CONTRACT_YEAR)}/CCGD)\b", re.IGNORECASE)
+CONTRACT_NO_REGEX = re.compile(r"\b(\d+[./]\d{4}(?:/[A-Z0-9]+)*/CCGD)\b", re.IGNORECASE)
 CONTRACT_KEYWORDS = ("hợp đồng", "hop dong", "hđ", "hd")
 
 NHOM_HD_MAP = {
@@ -70,6 +70,9 @@ CRITICAL_WEB_FORM_FIELDS = (
 DOC_KIND_TRANSFER = "transfer_contract"
 DOC_KIND_ASSET_COMMITMENT = "asset_commitment"
 DOC_KIND_TRANSFER_CANCELLATION = "transfer_cancellation"
+DOC_KIND_MORTGAGE = "mortgage_contract"
+DOC_KIND_INHERITANCE_PARTITION = "inheritance_partition"
+DOC_KIND_INHERITANCE_REFUSAL = "inheritance_refusal"
 DOC_KIND_GENERIC = "generic"
 
 
@@ -78,6 +81,18 @@ def _append_text_lines(lines: list[str], values: Iterable[str]) -> None:
         text = str(raw or "").strip()
         if text:
             lines.append(text)
+
+
+def _dedupe_preserve_order(values: Iterable[str]) -> list[str]:
+    items: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        value = str(raw or "").strip()
+        if not value or value in seen:
+            continue
+        items.append(value)
+        seen.add(value)
+    return items
 
 
 def _append_table_lines(lines: list[str], tables) -> None:
@@ -92,8 +107,23 @@ def _append_table_lines(lines: list[str], tables) -> None:
                 ).strip()
                 if cell_text:
                     row_values.append(cell_text)
+            row_values = _dedupe_preserve_order(row_values)
             if row_values:
                 lines.append(" | ".join(row_values))
+
+
+def _append_docx_body_lines(lines: list[str], doc) -> None:
+    from docx.oxml.table import CT_Tbl
+    from docx.oxml.text.paragraph import CT_P
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    for child in doc.element.body.iterchildren():
+        if isinstance(child, CT_P):
+            _append_text_lines(lines, [Paragraph(child, doc).text])
+            continue
+        if isinstance(child, CT_Tbl):
+            _append_table_lines(lines, [Table(child, doc)])
 
 
 # ============================================================
@@ -225,8 +255,7 @@ def read_docx(filepath, *, use_ifilter_for_doc: bool = False):
     from docx import Document
     doc = Document(str(filepath))
     lines: list[str] = []
-    _append_text_lines(lines, (p.text for p in doc.paragraphs))
-    _append_table_lines(lines, doc.tables)
+    _append_docx_body_lines(lines, doc)
     for section in doc.sections:
         _append_text_lines(lines, (p.text for p in section.header.paragraphs))
         _append_text_lines(lines, (p.text for p in section.footer.paragraphs))
@@ -234,13 +263,23 @@ def read_docx(filepath, *, use_ifilter_for_doc: bool = False):
 
 
 def _normalize_scan_contract_no(contract_no: str) -> str:
-    return str(contract_no or "").strip().upper()
+    text = re.sub(r"\s+", "", str(contract_no or "").strip().upper())
+    match = re.match(r"^(\d+)[./](\d{4})(.*)$", text)
+    if match:
+        return f"{match.group(1)}/{match.group(2)}{match.group(3)}"
+    return text
 
 
 def _normalize_web_contract_no(contract_no: str) -> str:
     normalized = _normalize_scan_contract_no(contract_no)
+    match = re.match(r"^(\d+)/(\d{4})(?:/[A-Z0-9]+)*(?:/CCGD)?$", normalized, re.IGNORECASE)
+    if match:
+        return f"{match.group(1)}/{match.group(2)}"
     if normalized.endswith("/CCGD"):
         normalized = normalized[:-5]
+    match = re.match(r"^(\d+)[./](\d{4})$", normalized)
+    if match:
+        return f"{match.group(1)}/{match.group(2)}"
     return normalized
 
 
@@ -320,11 +359,14 @@ def scan_docx_for_contract_no(filepath, *, include_text: bool = False):
 # TRICH XUAT TUNG TRUONG
 # ============================================================
 def find_ten_hop_dong(text):
-    return _detect_document_kind_and_title(text)[1]
+    doc_kind, title = _detect_document_kind_and_title(text)
+    if doc_kind == DOC_KIND_MORTGAGE:
+        return _canonical_mortgage_title(text)
+    return title
 
 
 def find_so_cong_chung(text):
-    m = re.search(r"Số công chứng\s*(\d+)\s*/\s*(\d{4})\s*/\s*CCGD\b", text, re.IGNORECASE)
+    m = re.search(r"Số công chứng\s*(\d+)\s*[./]\s*(\d{4})(?:\s*/\s*[A-Z0-9]+)*\s*/\s*CCGD\b", text, re.IGNORECASE)
     if m:
         return _normalize_web_contract_no(f"{m.group(1)}/{m.group(2)}/CCGD")
 
@@ -434,6 +476,18 @@ def _clean_title_line(text: str) -> str:
         cleaned,
         flags=re.IGNORECASE,
     )
+    cleaned = re.sub(
+        r"\s+(?:nÃ y\s+)?Ä‘Æ°á»£c\s+giao\s+káº¿t\s+giá»¯a\s*:?\s*$",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\s+(?:nay\s+)?duoc\s+giao\s+ket\s+giua\s*:?\s*$",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     return cleaned.strip(" .:-;\n\t")
 
 
@@ -462,6 +516,24 @@ def _detect_document_kind_and_title(text: str, *, file_name: str = "") -> tuple[
 
     if "cam ket tai san rieng" in title_fold or "cam ket tai san rieng" in combined_fold:
         return DOC_KIND_ASSET_COMMITMENT, "Văn bản cam kết tài sản riêng"
+
+    if any(
+        marker in title_or_header_fold or marker in combined_fold
+        for marker in (
+            "van ban tu choi nhan di san",
+            "tu choi nhan di san",
+        )
+    ):
+        return DOC_KIND_INHERITANCE_REFUSAL, "Văn bản từ chối nhận di sản"
+
+    if any(
+        marker in title_or_header_fold or marker in combined_fold
+        for marker in (
+            "van ban phan chia di san",
+            "thoa thuan phan chia di san",
+        )
+    ):
+        return DOC_KIND_INHERITANCE_PARTITION, "Văn bản phân chia di sản"
 
     is_transfer_cancellation = (
         ("huy bo" in title_fold or "huy hop dong" in title_fold)
@@ -500,6 +572,22 @@ def _detect_document_kind_and_title(text: str, *, file_name: str = "") -> tuple[
         ):
             return DOC_KIND_TRANSFER, "Hợp đồng chuyển nhượng quyền sử dụng đất"
         return DOC_KIND_TRANSFER, "Hợp đồng chuyển nhượng quyền sử dụng đất"
+
+    if "hop dong the chap" in title_or_header_fold or "hop dong the chap" in combined_fold:
+        return DOC_KIND_MORTGAGE, _canonical_mortgage_title(text)
+
+    if "hop dong the chap" in title_or_header_fold or "hop dong the chap" in combined_fold:
+        if any(
+            marker in combined_fold
+            for marker in (
+                "tai san gan lien voi dat",
+                "nha o va quyen su dung dat o",
+            )
+        ):
+            return DOC_KIND_MORTGAGE, "Há»£p Ä‘á»“ng tháº¿ cháº¥p quyá»n sá»­ dá»¥ng Ä‘áº¥t vÃ  tÃ i sáº£n gáº¯n liá»n vá»›i Ä‘áº¥t"
+        if "quyen su dung dat" in combined_fold:
+            return DOC_KIND_MORTGAGE, "Há»£p Ä‘á»“ng tháº¿ cháº¥p quyá»n sá»­ dá»¥ng Ä‘áº¥t"
+        return DOC_KIND_MORTGAGE, _sentence_case_vn(title_line)
 
     if title_line:
         return DOC_KIND_GENERIC, _sentence_case_vn(title_line)
@@ -614,7 +702,86 @@ def _find_tai_san_qsdd_common(text: str) -> str:
     )
 
 
+def _canonical_mortgage_title(text: str) -> str:
+    folded = _fold_text(text)
+    if "quyen su dung dat va tai san gan lien voi dat" in folded:
+        return "H\u1ee3p \u0111\u1ed3ng th\u1ebf ch\u1ea5p quy\u1ec1n s\u1eed d\u1ee5ng \u0111\u1ea5t v\u00e0 t\u00e0i s\u1ea3n g\u1eafn li\u1ec1n v\u1edbi \u0111\u1ea5t"
+    if "nha o va quyen su dung dat o" in folded:
+        return "H\u1ee3p \u0111\u1ed3ng th\u1ebf ch\u1ea5p nh\u00e0 \u1edf v\u00e0 quy\u1ec1n s\u1eed d\u1ee5ng \u0111\u1ea5t \u1edf"
+    if "quyen su dung dat" in folded:
+        return "H\u1ee3p \u0111\u1ed3ng th\u1ebf ch\u1ea5p quy\u1ec1n s\u1eed d\u1ee5ng \u0111\u1ea5t"
+    return "H\u1ee3p \u0111\u1ed3ng th\u1ebf ch\u1ea5p"
+
+
+def _canonical_mortgage_asset(text: str) -> str:
+    folded = _fold_text(text)
+    if "quyen su dung dat va tai san gan lien voi dat" in folded:
+        return "Quy\u1ec1n s\u1eed d\u1ee5ng \u0111\u1ea5t v\u00e0 t\u00e0i s\u1ea3n g\u1eafn li\u1ec1n v\u1edbi \u0111\u1ea5t"
+    if "nha o va quyen su dung dat o" in folded:
+        return "Nh\u00e0 \u1edf v\u00e0 quy\u1ec1n s\u1eed d\u1ee5ng \u0111\u1ea5t \u1edf"
+    if "quyen su dung dat" in folded:
+        return "Quy\u1ec1n s\u1eed d\u1ee5ng \u0111\u1ea5t"
+    return ""
+
+
+def _find_tai_san_mortgage_summary(text: str) -> str:
+    folded = _fold_text(text)
+    if "quyen su dung dat va tai san gan lien voi dat" in folded:
+        return "Quyá»n sá»­ dá»¥ng Ä‘áº¥t vÃ  tÃ i sáº£n gáº¯n liá»n vá»›i Ä‘áº¥t"
+    if "nha o va quyen su dung dat o" in folded:
+        return "NhÃ  á»Ÿ vÃ  quyá»n sá»­ dá»¥ng Ä‘áº¥t á»Ÿ"
+    if "quyen su dung dat" in folded:
+        return "Quyá»n sá»­ dá»¥ng Ä‘áº¥t"
+    return ""
+
+
+def _find_tai_san_inheritance_partition(text: str) -> str:
+    return _extract_block_by_folded_patterns(
+        text,
+        (
+            r"quyen su dung dat(?: cua[^\n]{0,120})?[^\n]{0,250}?co dia chi tai\s*:?",
+            r"nha o va quyen su dung dat o(?: cua[^\n]{0,120})?[^\n]{0,250}?co dia chi tai\s*:?",
+            r"phan quyen su dung dat(?: cua[^\n]{0,120})?[^\n]{0,250}?co dia chi tai\s*:?",
+        ),
+        (
+            r"(?m)^\s*nguoi thua ke\s*:",
+            r"(?m)^\s*nhung nguoi thua ke\b",
+            r"(?m)^\s*noi dung phan chia di san\b",
+            r"(?m)^\s*bang van ban nay\b",
+            r"(?m)^\s*nhung nguoi huong di san\b",
+            r"(?m)^\s*loi chung\b",
+        ),
+    )
+
+
+def _find_tai_san_inheritance_refusal(text: str) -> str:
+    return _extract_block_by_folded_patterns(
+        text,
+        (
+            r"(?m)^\s*(?:1\.\s*)?tai san(?: thu nhat)?\s*:",
+            r"quyen su dung dat(?: cua[^\n]{0,120})?[^\n]{0,250}?co dia chi tai\s*:?",
+            r"phan quyen su dung dat(?: cua[^\n]{0,120})?[^\n]{0,250}?co dia chi tai\s*:?",
+        ),
+        (
+            r"(?m)^\s*bang van ban nay\b",
+            r"(?m)^\s*toi xin cam doan\b",
+            r"(?m)^\s*nguoi tu choi huong di san\b",
+            r"(?m)^\s*loi chung\b",
+        ),
+    )
+
+
 def _find_tai_san_by_kind(text: str, doc_kind: str) -> str:
+    if doc_kind == DOC_KIND_INHERITANCE_PARTITION:
+        tai_san = _find_tai_san_inheritance_partition(text)
+        if tai_san:
+            return tai_san
+
+    if doc_kind == DOC_KIND_INHERITANCE_REFUSAL:
+        tai_san = _find_tai_san_inheritance_refusal(text)
+        if tai_san:
+            return tai_san
+
     common_qsdd_block = _find_tai_san_qsdd_common(text)
     if common_qsdd_block:
         return common_qsdd_block
@@ -658,6 +825,9 @@ def _find_tai_san_by_kind(text: str, doc_kind: str) -> str:
                 r"\bs\u1ed1 c\u00f4ng ch\u1ee9ng\b",
             ),
         )
+
+    if doc_kind == DOC_KIND_MORTGAGE:
+        return _canonical_mortgage_asset(text)
 
     return _find_tai_san_generic(text)
 
@@ -780,7 +950,10 @@ def _normalize_person_block_lines(person: dict) -> list[str]:
     address_line = str(person.get("dia_chi_line") or "").strip(" ;")
     if not address_line and person.get("dia_chi"):
         address_line = f"Thường trú tại: {person['dia_chi']}"
-    if address_line and not any("tru tai" in _fold_text(line) for line in lines):
+    if address_line and not any(
+        any(marker in _fold_text(line) for marker in ("tru tai", "cu tru", "dia chi dang ky"))
+        for line in lines
+    ):
         lines.append(address_line)
     return lines
 
@@ -797,7 +970,8 @@ def _format_person_block(person: dict, *, index: int | None = None) -> str:
 def fmt_nguoi_yeu_cau(ben_b):
     """Nguoi yeu cau CC = nguoi dau tien ben B."""
     if not ben_b.get("nguoi"):
-        return ""
+        entity_lines = [line for line in ben_b.get("entity_lines", []) if line]
+        return "\n".join(entity_lines[:3]).strip()
     return _format_person_block(ben_b["nguoi"][0])
 
 
@@ -820,6 +994,34 @@ def fmt_duong_su(ben_a, ben_b):
     return "\n".join(lines).strip()
 
 
+def _append_party_display(lines: list[str], party: dict) -> None:
+    for line in party.get("entity_lines", []):
+        cleaned = str(line or "").strip()
+        if cleaned:
+            lines.append(cleaned)
+    if party.get("entity_lines") and party.get("nguoi"):
+        lines.append("")
+    for idx, person in enumerate(party.get("nguoi", []), 1):
+        block = _format_person_block(person, index=idx)
+        if block:
+            lines.append(block)
+            lines.append("")
+
+
+def _fmt_single_party_with_label(party: dict, *, label: str) -> str:
+    lines = [f"{label}:"]
+    _append_party_display(lines, party)
+    return "\n".join(lines).strip()
+
+
+def _fmt_duong_su_with_labels(ben_a, ben_b, *, label_a: str, label_b: str) -> str:
+    lines = [f"{label_a}:"]
+    _append_party_display(lines, ben_a)
+    lines.append(f"{label_b}:")
+    _append_party_display(lines, ben_b)
+    return "\n".join(lines).strip()
+
+
 def get_missing_web_form_fields(web_form: dict, *, file_hop_dong: str = "") -> list[str]:
     values = dict(web_form or {})
     values["file_hop_dong"] = file_hop_dong
@@ -839,6 +1041,20 @@ def _find_first_pattern_index(text: str, patterns: Iterable[str], *, start: int 
     return best_idx
 
 
+def _split_section_lines(section: str) -> list[str]:
+    normalized = unicodedata.normalize("NFC", str(section or ""))
+    lines: list[str] = []
+    last_line = ""
+    for raw in normalized.split("\n"):
+        for segment in raw.split("|"):
+            line = re.sub(r"\s+", " ", segment).strip()
+            if not line or not re.search(r"\w", line) or line == last_line:
+                continue
+            lines.append(line)
+            last_line = line
+    return lines
+
+
 def _extract_plain_text_persons(section: str) -> list[dict]:
     return [dict(entry) for entry in _extract_plain_text_person_entries(section)]
 
@@ -851,16 +1067,28 @@ def _extract_plain_text_person_entries(section: str) -> list[dict]:
         r"(?:ng\u01b0\u1eddi\s+(?:v\u1ee3|ch\u1ed3ng)\s+)?(?P<title>\u00f4ng|b\u00e0)\s*:?\s*"
         r"(?P<name>.+?)(?=\s+Sinh ng\u00e0y:|[;]|$)"
     )
-    birth_re = re.compile(r"(?i)Sinh ng\u00e0y:?\s*(\d{1,2}/\d{1,2}/\d{4})")
+    header_re = re.compile(
+        r"(?i)^\s*(?:[-*]\s*)?(?:\u0110\u1ea1i di\u1ec7n:\s*)?(?:(?:ng\u01b0\u1eddi\s+)?(?:v\u1ee3|ch\u1ed3ng)\s*[â€“-]\s*)?"
+        r"(?:\d+\.\s*)?(?:v\u00e0\s+(?:v\u1ee3|ch\u1ed3ng)\s+l\u00e0\s+)?"
+        r"(?:ng\u01b0\u1eddi\s+(?:v\u1ee3|ch\u1ed3ng)\s+)?(?P<title>\u00f4ng|b\u00e0)\s*:?\s*"
+        r"(?P<name>.+?)(?=\s+(?:Sinh ng\u00e0y|Ng\u00e0y\s+sinh):|\s+Ch\u1ee9c v\u1ee5\s*:|[;]|$)"
+    )
+    header_re = re.compile(
+        r"(?i)^\s*(?:[-*]\s*)?(?:\u0110\u1ea1i di\u1ec7n:\s*)?(?:(?:ng\u01b0\u1eddi\s+)?(?:v\u1ee3|ch\u1ed3ng)\s*[\-\u2013]\s*)?"
+        r"(?:\d+\.\s*)?(?:v\u00e0\s+(?:v\u1ee3|ch\u1ed3ng)\s+l\u00e0\s+)?"
+        r"(?:ng\u01b0\u1eddi\s+(?:v\u1ee3|ch\u1ed3ng)\s+)?(?P<title>\u00f4ng|b\u00e0)\s*:?\s*"
+        r"(?P<name>.+?)(?=\s+(?:Sinh ng\u00e0y|Ng\u00e0y\s+sinh):|\s+Ch\u1ee9c v\u1ee5\s*:|[;]|$)"
+    )
+    birth_re = re.compile(r"(?i)(?:Sinh ng\u00e0y|Ng\u00e0y\s+sinh):?\s*(\d{1,2}/\d{1,2}/\d{4})")
     id_re = re.compile(r"(?i)(?:C\u0103n c\u01b0\u1edbc(?:\s+c\u00f4ng d\u00e2n)?|CCCD|CMND)\s*(?:s\u1ed1)?\s*:?\s*(\d+)")
     issue_place_re = re.compile(r"(?i)\bdo\s+(.+?)\s+c\u1ea5p ng\u00e0y", re.DOTALL)
     issue_date_re = re.compile(r"(?i)c\u1ea5p ng\u00e0y\s*(\d{1,2}/\d{1,2}/\d{4})")
     address_re = re.compile(
-        r"(?im)^(?:C\u1ea3 hai \u00f4ng b\u00e0\s+)?(?:C\u00f9ng\s+)?(?:N\u01a1i\s+)?"
-        r"(?:th\u01b0\u1eddng tr\u00fa|c\u01b0 tr\u00fa)\s+t\u1ea1i:\s*(.+)$"
+        r"(?im)^(?:C\u1ea3 hai \u00f4ng b\u00e0\s+)?(?:C\u00f9ng\s+)?"
+        r"(?:(?:N\u01a1i\s+)?(?:th\u01b0\u1eddng tr\u00fa|c\u01b0 tr\u00fa)\s+t\u1ea1i|\u0110\u1ecba ch\u1ec9\s+n\u01a1i\s+c\u01b0\s+tr\u00fa|\u0110\u1ecba ch\u1ec9\s+\u0111\u0103ng\s+k\u00fd)\s*:?\s*(.+)$"
     )
 
-    lines = [re.sub(r"\s+", " ", line).strip() for line in section.split("\n") if line.strip()]
+    lines = _split_section_lines(section)
     headers: list[tuple[int, re.Match[str]]] = []
     address_lines: list[tuple[int, str, str]] = []
     for idx, line in enumerate(lines):
@@ -910,25 +1138,83 @@ def _extract_plain_text_person_entries(section: str) -> list[dict]:
                 raw_text = str(person.get("raw_text") or "").strip()
                 if fallback[1] not in raw_text:
                     person["raw_text"] = f"{raw_text}\n{fallback[1]}".strip()
+        person["source_start_line_idx"] = person["_line_idx"]
         person.pop("_line_idx", None)
     return persons
 
 
 def _extract_plain_text_address(section: str) -> str:
-    section = unicodedata.normalize("NFC", str(section or ""))
-    match = re.search(
-        r"(?im)^(?:C\u1ea3 hai \u00f4ng b\u00e0\s+)?(?:C\u00f9ng\s+)?(?:N\u01a1i\s+)?"
-        r"(?:th\u01b0\u1eddng tr\u00fa|c\u01b0 tr\u00fa)\s+t\u1ea1i:\s*(.+)$",
-        section,
+    address_re = re.compile(
+        r"(?im)^(?:C\u1ea3 hai \u00f4ng b\u00e0\s+)?(?:C\u00f9ng\s+)?"
+        r"(?:(?:N\u01a1i\s+)?(?:th\u01b0\u1eddng tr\u00fa|c\u01b0 tr\u00fa)\s+t\u1ea1i|\u0110\u1ecba ch\u1ec9\s+n\u01a1i\s+c\u01b0\s+tr\u00fa|\u0110\u1ecba ch\u1ec9\s+\u0111\u0103ng\s+k\u00fd)\s*:?\s*(.+)$"
     )
+    for line in _split_section_lines(section):
+        match = address_re.search(line)
+        if match:
+            return re.sub(r"\s+", " ", match.group(1)).strip(" .;")
+    return ""
+
+
+def _extract_party_data(section: str) -> dict:
+    persons = _extract_plain_text_person_entries(section)
+    lines = _split_section_lines(section)
+    header_line_re = re.compile(
+        r"(?i)^\s*(?:[-*]\s*)?(?:\u0110\u1ea1i di\u1ec7n:\s*)?(?:(?:ng\u01b0\u1eddi\s+)?(?:v\u1ee3|ch\u1ed3ng)\s*[â€“-]\s*)?"
+        r"(?:\d+\.\s*)?(?:v\u00e0\s+(?:v\u1ee3|ch\u1ed3ng)\s+l\u00e0\s+)?"
+        r"(?:ng\u01b0\u1eddi\s+(?:v\u1ee3|ch\u1ed3ng)\s+)?(?:\u00f4ng|b\u00e0)\s*:?"
+    )
+    header_line_re = re.compile(
+        r"(?i)^\s*(?:[-*]\s*)?(?:\u0110\u1ea1i di\u1ec7n:\s*)?(?:(?:ng\u01b0\u1eddi\s+)?(?:v\u1ee3|ch\u1ed3ng)\s*[\-\u2013]\s*)?"
+        r"(?:\d+\.\s*)?(?:v\u00e0\s+(?:v\u1ee3|ch\u1ed3ng)\s+l\u00e0\s+)?"
+        r"(?:ng\u01b0\u1eddi\s+(?:v\u1ee3|ch\u1ed3ng)\s+)?(?:\u00f4ng|b\u00e0)\s*:?"
+    )
+    party_heading_re = re.compile(r"(?i)^(?:[IVX]+\.\s*)?B\u00caN\b")
+    entity_lines: list[str] = []
+    if persons:
+        first_person_idx = min(int(person.get("source_start_line_idx", 0)) for person in persons)
+        entity_lines = [
+            line.strip(" ;")
+            for idx, line in enumerate(lines)
+            if idx < first_person_idx and line.strip() and not header_line_re.search(line) and not party_heading_re.search(line)
+        ]
+    for person in persons:
+        person.pop("source_start_line_idx", None)
+    return {
+        "nguoi": [dict(person) for person in persons],
+        "dia_chi": _extract_plain_text_address(section),
+        "entity_lines": _dedupe_preserve_order(entity_lines),
+    }
+
+
+def _extract_section_between_patterns(
+    text: str,
+    start_patterns: Iterable[str],
+    end_patterns: Iterable[str],
+    *,
+    use_match_end: bool = False,
+) -> str:
+    match = _find_first_pattern_match_generic(text, start_patterns)
     if not match:
         return ""
-    return re.sub(r"\s+", " ", match.group(1)).strip(" .;")
+
+    start_idx = int(match[1] if use_match_end else match[0])
+    end_idx = _find_first_pattern_index(text, end_patterns, start=start_idx)
+    if end_idx <= start_idx:
+        end_idx = len(text)
+    return str(text[start_idx:end_idx]).strip()
 
 
 def _extract_plain_text_parties(text: str) -> tuple[dict, dict]:
-    ben_a_patterns = (r"\b(?:I\.\s*)?B\u00caN CHUY\u1ec2N NH\u01af\u1ee2NG\b", r"\bB\u00caN A\b")
-    ben_b_patterns = (r"\b(?:II\.\s*)?B\u00caN NH\u1eacN CHUY\u1ec2N NH\u01af\u1ee2NG\b", r"\bB\u00caN B\b")
+    ben_a_patterns = (
+        r"\b(?:I\.\s*)?B\u00caN CHUY\u1ec2N NH\u01af\u1ee2NG\b",
+        r"\b(?:I\.\s*)?B\u00caN TH\u1ebe CH\u1ea4P\b",
+        r"\bB\u00caN A\b",
+    )
+    ben_b_patterns = (
+        r"\b(?:II\.\s*)?B\u00caN NH\u1eacN CHUY\u1ec2N NH\u01af\u1ee2NG\b",
+        r"\b(?:II\.\s*)?B\u00caN NH\u1eacN TH\u1ebe CH\u1ea4P\b",
+        r"\bB\u00caN B\b",
+    )
     end_patterns = (
         r"\bC\u00e1c b\u00ean \u0111\u00e3 t\u1ef1 nguy\u1ec7n\b",
         r"\bHai b\u00ean t\u1ef1 nguy\u1ec7n\b",
@@ -944,15 +1230,7 @@ def _extract_plain_text_parties(text: str) -> tuple[dict, dict]:
     ben_a_section = text[idx_a:idx_b] if idx_a >= 0 and idx_b >= 0 else ""
     ben_b_section = text[idx_b:idx_end] if idx_b >= 0 and idx_end > idx_b else text[idx_b:] if idx_b >= 0 else ""
 
-    ben_a = {
-        "nguoi": _extract_plain_text_persons(ben_a_section),
-        "dia_chi": _extract_plain_text_address(ben_a_section),
-    }
-    ben_b = {
-        "nguoi": _extract_plain_text_persons(ben_b_section),
-        "dia_chi": _extract_plain_text_address(ben_b_section),
-    }
-    return ben_a, ben_b
+    return _extract_party_data(ben_a_section), _extract_party_data(ben_b_section)
 
 
 def _find_first_pattern_match_generic(text: str, patterns: Iterable[str], *, start: int = 0):
@@ -1011,15 +1289,62 @@ def _extract_commitment_parties(text: str) -> tuple[dict, dict]:
     return ben_a, ben_b
 
 
+def _extract_inheritance_partition_parties(text: str) -> tuple[dict, dict]:
+    section = _extract_section_between_patterns(
+        text,
+        (
+            r"(?im)^\s*Chúng tôi là những người được hưởng di sản\b",
+            r"(?im)^\s*Văn bản phân chia di sản này được lập bởi\b",
+        ),
+        (
+            r"(?im)^\s*Chúng tôi tự nguyện lập Văn bản này\b",
+            r"(?im)^\s*Người để lại di sản\s*:",
+            r"(?im)^\s*Di sản\s*:",
+            r"(?im)^\s*LỜI CHỨNG\b",
+        ),
+    )
+    ben_a = _extract_party_data(section) if section else {"nguoi": [], "dia_chi": "", "entity_lines": []}
+    ben_b = {"nguoi": [], "dia_chi": "", "entity_lines": []}
+    return ben_a, ben_b
+
+
+def _extract_inheritance_refusal_parties(text: str) -> tuple[dict, dict]:
+    section = _extract_section_between_patterns(
+        text,
+        (
+            r"(?im)^\s*Tôi là\s*:?",
+            r"(?im)^\s*Văn bản từ chối nhận di sản này được lập bởi\s*:?",
+        ),
+        (
+            r"(?im)^\s*Nay,\s*tôi tự nguyện lập Văn bản này\b",
+            r"(?im)^\s*Theo quy định của pháp luật\b",
+            r"(?im)^\s*LỜI CHỨNG\b",
+        ),
+        use_match_end=True,
+    )
+    ben_a = _extract_party_data(section) if section else {"nguoi": [], "dia_chi": "", "entity_lines": []}
+    ben_b = {"nguoi": [], "dia_chi": "", "entity_lines": []}
+    return ben_a, ben_b
+
+
 def _extract_parties_generic(text: str) -> tuple[dict, dict]:
     doc_kind, _ = _detect_document_kind_and_title(text)
     if doc_kind == DOC_KIND_ASSET_COMMITMENT:
         ben_a, ben_b = _extract_commitment_parties(text)
         if ben_a.get("nguoi") or ben_b.get("nguoi"):
             return ben_a, ben_b
+    if doc_kind == DOC_KIND_INHERITANCE_PARTITION:
+        ben_a, ben_b = _extract_inheritance_partition_parties(text)
+        if ben_a.get("nguoi") or ben_b.get("nguoi"):
+            return ben_a, ben_b
+    if doc_kind == DOC_KIND_INHERITANCE_REFUSAL:
+        ben_a, ben_b = _extract_inheritance_refusal_parties(text)
+        if ben_a.get("nguoi") or ben_b.get("nguoi"):
+            return ben_a, ben_b
 
     ben_a_patterns = (
         r"(?m)^\s*(?:I\.\s*)?B\u00caN CHUY\u1ec2N NH\u01af\u1ee2NG\b",
+        r"(?m)^\s*(?:I\.\s*)?B\u00caN TH\u1ebe CH\u1ea4P\b",
         r"(?m)^\s*(?:I\.\s*)?B\u00caN CHO VAY\b",
         r"(?m)^\s*(?:I\.\s*)?B\u00caN CHO THU\u00ca\b",
         r"(?m)^\s*(?:I\.\s*)?B\u00caN (?:UY|U\u1ef6|\u1ee6Y) QUY\u1ec0N\b",
@@ -1029,6 +1354,7 @@ def _extract_parties_generic(text: str) -> tuple[dict, dict]:
     )
     ben_b_patterns = (
         r"(?m)^\s*(?:II\.\s*)?B\u00caN NH\u1eacN CHUY\u1ec2N NH\u01af\u1ee2NG\b",
+        r"(?m)^\s*(?:II\.\s*)?B\u00caN NH\u1eacN TH\u1ebe CH\u1ea4P\b",
         r"(?m)^\s*(?:II\.\s*)?B\u00caN VAY\b",
         r"(?m)^\s*(?:II\.\s*)?B\u00caN THU\u00ca\b",
         r"(?m)^\s*(?:II\.\s*)?B\u00caN \u0110\u01af\u1ee2C (?:UY|U\u1ef6|\u1ee6Y) QUY\u1ec0N\b",
@@ -1073,15 +1399,7 @@ def _extract_parties_generic(text: str) -> tuple[dict, dict]:
         ben_a_section = text[idx_a_start:idx_end] if idx_end > idx_a_start else text[idx_a_start:]
         ben_b_section = ""
 
-    ben_a = {
-        "nguoi": _extract_plain_text_persons(ben_a_section),
-        "dia_chi": _extract_plain_text_address(ben_a_section),
-    }
-    ben_b = {
-        "nguoi": _extract_plain_text_persons(ben_b_section),
-        "dia_chi": _extract_plain_text_address(ben_b_section),
-    }
-    return ben_a, ben_b
+    return _extract_party_data(ben_a_section), _extract_party_data(ben_b_section)
 
 
 def _fmt_duong_su_generic(ben_a, ben_b):
@@ -1101,10 +1419,29 @@ def _fmt_duong_su_generic(ben_a, ben_b):
     return "\n".join(lines).strip()
 
 
+def _fmt_duong_su_by_kind(doc_kind: str, ben_a: dict, ben_b: dict) -> str:
+    if doc_kind == DOC_KIND_TRANSFER:
+        return fmt_duong_su(ben_a, ben_b)
+    if doc_kind == DOC_KIND_MORTGAGE:
+        return _fmt_duong_su_with_labels(
+            ben_a,
+            ben_b,
+            label_a="BÊN THẾ CHẤP",
+            label_b="BÊN NHẬN THẾ CHẤP",
+        )
+    if doc_kind == DOC_KIND_INHERITANCE_PARTITION:
+        return _fmt_single_party_with_label(ben_a, label="NHỮNG NGƯỜI HƯỞNG DI SẢN")
+    if doc_kind == DOC_KIND_INHERITANCE_REFUSAL:
+        return _fmt_single_party_with_label(ben_a, label="NGƯỜI TỪ CHỐI NHẬN DI SẢN")
+    return _fmt_duong_su_with_labels(ben_a, ben_b, label_a="BÊN A", label_b="BÊN B")
+
+
 def _build_payload_generic(filepath, text: str, scan_result: dict, *, extract_mode: str) -> dict:
     doc_kind, ten_hd = _detect_document_kind_and_title(text, file_name=Path(filepath).name)
     ben_a, ben_b = _extract_parties_generic(text)
     tai_san = _find_tai_san_by_kind(text, doc_kind)
+    if doc_kind == DOC_KIND_MORTGAGE:
+        ten_hd = _canonical_mortgage_title(text)
     so_cong_chung = _normalize_web_contract_no(find_so_cong_chung(text) or scan_result.get("contract_no", ""))
     if doc_kind == DOC_KIND_ASSET_COMMITMENT and ben_a.get("nguoi"):
         nguoi_yeu_cau_party = ben_a
@@ -1119,7 +1456,7 @@ def _build_payload_generic(filepath, text: str, scan_result: dict, *, extract_mo
         "cong_chung_vien": find_ccv(text),
         "thu_ky": DEFAULT_THU_KY,
         "nguoi_yeu_cau": fmt_nguoi_yeu_cau(nguoi_yeu_cau_party),
-        "duong_su": _fmt_duong_su_generic(ben_a, ben_b),
+        "duong_su": _fmt_duong_su_by_kind(doc_kind, ben_a, ben_b),
         "tai_san": tai_san,
     }
     file_goc = os.path.abspath(filepath)
@@ -1143,6 +1480,8 @@ def _build_payload_generic(filepath, text: str, scan_result: dict, *, extract_mo
 def _build_payload(filepath, text: str, scan_result: dict, ben_a: dict, ben_b: dict, *, extract_mode: str) -> dict:
     doc_kind, ten_hd = _detect_document_kind_and_title(text, file_name=Path(filepath).name)
     tai_san = _find_tai_san_by_kind(text, doc_kind)
+    if doc_kind == DOC_KIND_MORTGAGE:
+        ten_hd = _canonical_mortgage_title(text)
     so_cong_chung = _normalize_web_contract_no(find_so_cong_chung(text) or scan_result.get("contract_no", ""))
     if doc_kind == DOC_KIND_ASSET_COMMITMENT and ben_a.get("nguoi"):
         nguoi_yeu_cau_party = ben_a
@@ -1157,7 +1496,7 @@ def _build_payload(filepath, text: str, scan_result: dict, ben_a: dict, ben_b: d
         "cong_chung_vien": find_ccv(text),
         "thu_ky": DEFAULT_THU_KY,
         "nguoi_yeu_cau": fmt_nguoi_yeu_cau(nguoi_yeu_cau_party),
-        "duong_su": fmt_duong_su(ben_a, ben_b),
+        "duong_su": _fmt_duong_su_by_kind(doc_kind, ben_a, ben_b),
         "tai_san": tai_san,
     }
     file_goc = os.path.abspath(filepath)

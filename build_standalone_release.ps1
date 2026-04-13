@@ -17,7 +17,6 @@ $filesToCopy = @(
     "bootstrap_ui.py",
     "bootstrap_ui_pyqt6.py",
     "build_standalone_release.ps1",
-    "CHECKLIST_PHAT_HANH_STANDALONE.md",
     "extract_contract.py",
     "HUONG_DAN.md",
     "install_python_windows.ps1",

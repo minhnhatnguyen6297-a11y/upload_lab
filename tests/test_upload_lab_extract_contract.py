@@ -19,6 +19,26 @@ def make_docx(path: Path, *paragraphs: str) -> Path:
     return path
 
 
+def make_docx_with_blocks(path: Path, blocks: list[tuple[str, object]]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = Document()
+    for block_type, payload in blocks:
+        if block_type == "p":
+            doc.add_paragraph(str(payload))
+            continue
+        if block_type == "table":
+            rows = list(payload)
+            col_count = max(len(row) for row in rows)
+            table = doc.add_table(rows=len(rows), cols=col_count)
+            for row_idx, row in enumerate(rows):
+                for col_idx, value in enumerate(row):
+                    table.cell(row_idx, col_idx).text = str(value)
+            continue
+        raise ValueError(f"Unsupported block type: {block_type}")
+    doc.save(str(path))
+    return path
+
+
 class UploadLabExtractContractTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
@@ -167,6 +187,147 @@ class UploadLabExtractContractTests(unittest.TestCase):
         self.assertEqual(duong_su.count("Cùng cư trú tại: thôn A, xã B."), 2)
         self.assertEqual(duong_su.count("Cùng cư trú tại: thôn C, xã D."), 2)
         self.assertIn("Cùng cư trú tại: thôn C, xã D.", nguoi_yeu_cau)
+
+
+    def test_extract_mortgage_summary_keeps_table_order_and_uses_mortgage_party_labels(self):
+        docx_path = make_docx_with_blocks(
+            self.root / "the_chap_tom_tat.docx",
+            [
+                ("p", "LỜI CHỨNG CỦA CÔNG CHỨNG VIÊN"),
+                ("p", "Hợp đồng thế chấp quyền sử dụng đất được giao kết giữa:"),
+                ("p", "I. Bên A: BÊN THẾ CHẤP"),
+                (
+                    "table",
+                    [
+                        ("1. Ông: Vũ Duy Quang", "Ngày sinh: 15/04/1981"),
+                        ("Căn cước công dân 036081005455 do Bộ Công an cấp ngày 25/04/2021",),
+                        ("Địa chỉ nơi cư trú: xã Ý Yên, tỉnh Ninh Bình",),
+                        ("2. và vợ là Bà: Phạm Thị Lan", "Ngày sinh: 06/05/1983"),
+                        ("Căn cước công dân: 036183009426 do Bộ Công an cấp ngày 06/08/2023",),
+                        ("Địa chỉ nơi cư trú: xã Ý Yên, tỉnh Ninh Bình",),
+                    ],
+                ),
+                ("p", "II. Bên B: BÊN NHẬN THẾ CHẤP"),
+                ("p", "NGÂN HÀNG THƯƠNG MẠI CỔ PHẦN NGOẠI THƯƠNG VIỆT NAM – CHI NHÁNH NAM ĐỊNH"),
+                ("p", "Địa chỉ đăng ký: Số 629 Trần Hưng Đạo, phường Nam Định, tỉnh Ninh Bình."),
+                ("p", "Đại diện: Ông Nguyễn Hữu Dụng Chức vụ: Phó giám đốc chi nhánh"),
+                ("p", "Căn cước công dân số 036081017402 do Bộ Công an cấp ngày 02/07/2021"),
+                ("p", "Số công chứng 473/2026/CCGD"),
+            ],
+        )
+
+        payload = extract(docx_path)
+        duong_su = payload["web_form"]["duong_su"]
+
+        self.assertEqual(payload["raw"]["document_kind"], "mortgage_contract")
+        self.assertEqual(payload["web_form"]["ten_hop_dong"], "Hợp đồng thế chấp quyền sử dụng đất")
+        self.assertEqual(payload["web_form"]["nhom_hop_dong"], "Cầm cố - Thế chấp - Vay")
+        self.assertEqual(payload["web_form"]["tai_san"], "Quyền sử dụng đất")
+        self.assertEqual(payload["web_form"]["loai_tai_san"], "Đất đai không có tài sản")
+        self.assertIn("BÊN THẾ CHẤP:", duong_su)
+        self.assertIn("BÊN NHẬN THẾ CHẤP:", duong_su)
+        self.assertIn("NGÂN HÀNG THƯƠNG MẠI CỔ PHẦN NGOẠI THƯƠNG VIỆT NAM", duong_su)
+        self.assertIn("Nguyễn Hữu Dụng", payload["web_form"]["nguoi_yeu_cau"])
+        self.assertEqual(len(payload["raw"]["ben_a"]["nguoi"]), 2)
+        self.assertEqual(len(payload["raw"]["ben_b"]["nguoi"]), 1)
+
+    def test_extract_inheritance_partition_uses_single_heir_group_and_stops_asset_before_heirs_section(self):
+        docx_path = make_docx(
+            self.root / "phan_chia_di_san.docx",
+            "VĂN BẢN PHÂN CHIA DI SẢN",
+            "Chúng tôi là những người được hưởng di sản theo pháp luật của ông Nguyễn Văn Hỷ:",
+            "Bà Nguyễn Thị Tuyết Sinh ngày: 01/01/1961",
+            "Căn cước công dân số 036161014031 do Bộ Công an cấp ngày 28/06/2021;",
+            "Thường trú tại: 02 Bà Huyện Thanh Quan, phường Lâm Viên – Đà Lạt, tỉnh Lâm Đồng.",
+            "Bà Nguyễn Thị Nga Sinh ngày: 02/04/1964",
+            "Căn cước công dân số 036164017015 do Bộ Công an cấp ngày 14/03/2024;",
+            "Thường trú tại: Số 06/Đ2 Phan Chu Trinh, phường Lâm Viên – Đà Lạt, tỉnh Lâm Đồng.",
+            "Bà Nguyễn Thị Thu Là Sinh ngày: 04/10/1972",
+            "Căn cước công dân số 036172012182 do Bộ Công an cấp ngày 28/06/2021;",
+            "Thường trú tại: 71C/2 Bùi Thị Xuân, phường Lâm Viên – Đà Lạt, tỉnh Lâm Đồng.",
+            "Chúng tôi tự nguyện lập Văn bản này với nội dung như sau:",
+            "Người để lại di sản:",
+            "Ông Nguyễn Văn Hỷ; Sinh năm: 1928; chết ngày 09/10/2019.",
+            "Di sản:",
+            "Di sản của ông Nguyễn Văn Hỷ để lại là:",
+            "Quyền sử dụng đất của ông Nguyễn Văn Hỷ có địa chỉ tại: xã Ý Yên, tỉnh Ninh Bình theo Giấy chứng nhận quyền sử dụng đất số: A 692002.",
+            "- Thửa đất số: 65; Tờ bản đồ số: 21",
+            "- Diện tích: 190 m²",
+            "- Mục đích sử dụng: Đất ở",
+            "Người thừa kế:",
+            "Những người thừa kế của ông Nguyễn Văn Hỷ gồm vợ và các con.",
+            "Nội dung phân chia di sản.",
+            "Bằng Văn bản này, chúng tôi xin nhận kỷ phần thừa kế.",
+            "LỜI CHỨNG CỦA CÔNG CHỨNG VIÊN",
+            "Số công chứng 2433.2025/PCDS/CCGD.",
+        )
+
+        payload = extract(docx_path)
+        duong_su = payload["web_form"]["duong_su"]
+        tai_san = payload["web_form"]["tai_san"]
+
+        self.assertEqual(payload["raw"]["document_kind"], "inheritance_partition")
+        self.assertEqual(payload["web_form"]["ten_hop_dong"], "Văn bản phân chia di sản")
+        self.assertEqual(payload["web_form"]["nhom_hop_dong"], "Thừa kế (khai nhận - phân chia di sản thừa kế )")
+        self.assertEqual(payload["web_form"]["so_cong_chung"], "2433/2025")
+        self.assertTrue(duong_su.startswith("NHỮNG NGƯỜI HƯỞNG DI SẢN:"))
+        self.assertIn("Nguyễn Thị Tuyết", duong_su)
+        self.assertIn("Nguyễn Thị Nga", duong_su)
+        self.assertIn("Nguyễn Thị Thu Là", duong_su)
+        self.assertNotIn("BÊN B:", duong_su)
+        self.assertNotIn("Người để lại di sản", duong_su)
+        self.assertIn("Quyền sử dụng đất của ông Nguyễn Văn Hỷ có địa chỉ tại", tai_san)
+        self.assertNotIn("Người thừa kế:", tai_san)
+        self.assertNotIn("Nội dung phân chia di sản", tai_san)
+
+    def test_extract_inheritance_refusal_keeps_refuser_and_multiple_assets_without_oath_section(self):
+        docx_path = make_docx_with_blocks(
+            self.root / "tu_choi_di_san.docx",
+            [
+                ("p", "VĂN BẢN TỪ CHỐI NHẬN DI SẢN"),
+                ("p", "Tôi là: Bà Hoàng Thị Hợi; Sinh ngày: 02/02/1945;"),
+                ("p", "Căn cước công dân số 037145004692 do Bộ Công an cấp ngày 02/07/2021;"),
+                ("p", "Thường trú tại: Thôn Hưng Thượng, xã Ý Yên, tỉnh Ninh Bình."),
+                ("p", "Nay, tôi tự nguyện lập Văn bản này với nội dung như sau:"),
+                ("p", "Chồng tôi là ông Nguyễn Văn Hỷ; Sinh năm: 1928; chết ngày 09/10/2019."),
+                ("p", "Theo quy định của pháp luật, tôi là người được hưởng thừa kế đối với di sản mà ông Nguyễn Văn Hỷ để lại, đó là:"),
+                ("p", "1. Tài sản thứ nhất:"),
+                ("p", "Quyền sử dụng đất của ông Nguyễn Văn Hỷ có địa chỉ tại: xã Ý Yên, tỉnh Ninh Bình theo Giấy chứng nhận quyền sử dụng đất số: A 692002."),
+                ("p", "- Thửa đất số: 65; Tờ bản đồ số: 21"),
+                ("p", "- Diện tích: 190 m²"),
+                ("p", "2. Tài sản thứ hai:"),
+                ("p", "Phần quyền sử dụng đất của ông Nguyễn Văn Hỷ trong khối tài sản chung với vợ là bà Hoàng Thị Hợi có địa chỉ tại: xã Ý Yên, tỉnh Ninh Bình theo Giấy chứng nhận quyền sử dụng đất, quyền sở hữu nhà ở và tài sản khác gắn liền với đất số: CK 902585."),
+                (
+                    "table",
+                    [
+                        ("Tờ bản đồ số", "Thửa đất số", "Diện tích (m2)", "Mục đích sử dụng"),
+                        ("19", "122(12)", "216.0", "Đất trồng lúa"),
+                        ("46", "4(8)", "36.0", "Đất trồng lúa"),
+                    ],
+                ),
+                ("p", "Bằng Văn bản này, tôi – Hoàng Thị Hợi tự nguyện từ chối nhận kỷ phần thừa kế mà mình được hưởng."),
+                ("p", "Tôi xin cam đoan việc từ chối này là hoàn toàn tự nguyện."),
+                ("p", "Người từ chối hưởng di sản"),
+                ("p", "LỜI CHỨNG CỦA CÔNG CHỨNG VIÊN"),
+                ("p", "Số công chứng 2233.2025/TCDS/CCGD."),
+            ],
+        )
+
+        payload = extract(docx_path)
+        duong_su = payload["web_form"]["duong_su"]
+        tai_san = payload["web_form"]["tai_san"]
+
+        self.assertEqual(payload["raw"]["document_kind"], "inheritance_refusal")
+        self.assertEqual(payload["web_form"]["ten_hop_dong"], "Văn bản từ chối nhận di sản")
+        self.assertEqual(payload["web_form"]["nhom_hop_dong"], "Từ chối nhận di sản thừa kế")
+        self.assertEqual(payload["web_form"]["so_cong_chung"], "2233/2025")
+        self.assertIn("Hoàng Thị Hợi", payload["web_form"]["nguoi_yeu_cau"])
+        self.assertTrue(duong_su.startswith("NGƯỜI TỪ CHỐI NHẬN DI SẢN:"))
+        self.assertNotIn("BÊN B:", duong_su)
+        self.assertIn("Tài sản thứ hai", tai_san)
+        self.assertIn("122(12)", tai_san)
+        self.assertNotIn("Bằng Văn bản này, tôi", tai_san)
+        self.assertNotIn("LỜI CHỨNG", tai_san)
 
 
 if __name__ == "__main__":

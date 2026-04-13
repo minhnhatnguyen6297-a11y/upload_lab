@@ -1,99 +1,92 @@
-# Upload Tool Standalone
+# Hướng dẫn sử dụng Upload Tool
 
-## Chay lan dau
+## Chạy lần đầu
 
-Double-click `run_ui.bat`.
+Double-click `run_ui_pyqt6.bat` (launcher chính).
 
-Launcher se tu:
-- tim Python 3.10+ san co
-- neu chua co thi thu cai qua `winget`, neu that bai se tai installer Python tu `python.org`
-- tao `.venv`
-- cai dependency tu `requirements.txt`
-- cai `playwright chromium`
-- mo giao dien
+Launcher sẽ tự động:
+- Tìm Python 3.10+ sẵn có
+- Nếu chưa có thì thử cài qua `winget`, nếu thất bại sẽ tải installer Python từ `python.org`
+- Tạo `.venv` riêng trong thư mục tool
+- Cài dependency từ `requirements.txt`
+- Cài `playwright chromium`
+- Mở giao diện
 
-Luu y:
-- Lan dau can Internet
-- Khong can Microsoft Word/Office
-- Moi du lieu runtime duoc tao ngay trong thu muc tool: `output`, `runs`, `logs`, `downloads`, `upload_runs`, `registry.sqlite3`
+Lưu ý:
+- Lần đầu cần Internet
+- Không cần Microsoft Word/Office
+- Mọi dữ liệu runtime được tạo ngay trong thư mục tool: `output`, `runs`, `logs`, `downloads`, `upload_runs`, `registry.sqlite3`
 
-Neu can tao bo phat hanh sach:
+> Nếu máy đang dùng UI Tkinter cũ: double-click `run_ui.bat` (fallback legacy).
+
+Nếu cần tạo bộ phát hành sạch:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build_standalone_release.ps1
 ```
 
-## Cau hinh uploader lan dau
+## Cấu hình uploader lần đầu
 
-Tab `Upload Playwright` se tu nhac cau hinh neu:
-- chua co `.env`
-- thieu `ND_USERNAME` hoac `ND_PASSWORD`
-- chua co `nd_storage_state.json`
+Tab `Upload hồ sơ` sẽ tự nhắc cấu hình nếu:
+- Chưa có `.env`
+- Thiếu `ND_USERNAME` hoặc `ND_PASSWORD`
+- Chưa có `nd_storage_state.json`
 
-Flow dung:
-1. Mo tab `Upload Playwright`
-2. Bam `Cau hinh uploader`
-3. Dien `Base URL`, `Login URL`, `Create URL`, tai khoan, mat khau
-4. Bam `Luu va dang nhap`
-5. Tool se tu dang nhap va tao `nd_storage_state.json`
+Flow dùng:
+1. Mở tab `Upload hồ sơ`
+2. Bấm `Cấu hình uploader`
+3. Điền `Base URL`, `Login URL`, `Create URL`, tài khoản, mật khẩu
+4. Bấm `Lưu và đăng nhập`
+5. Tool sẽ tự đăng nhập và tạo `nd_storage_state.json`
 
-File `.env` duoc tao tu `.env.example` neu thieu.
+File `.env` được tạo từ `.env.example` nếu thiếu.
 
-## Batch scan
+## Quét hồ sơ (Tab 1)
 
-Tab `Batch Scan Folder`:
-- browse folder tong
-- nhap `modified since` neu can (`YYYY-MM-DD` hoac `DD/MM/YYYY`)
-- tick `full rescan` neu muon quet lai toan bo
-- bam `Chay Batch Scan`
+Tab `Quét hồ sơ`:
+- Browse folder tổng
+- Nhập `modified since` nếu cần (`YYYY-MM-DD` hoặc `DD/MM/YYYY`)
+- Tick `Full rescan` nếu muốn quét lại toàn bộ
+- Điều chỉnh độ sâu folder (mặc định 3)
+- Bấm `Chạy Batch Scan`
 
 Batch scan:
-- ho tro ca `.docx` va `.doc`
-- bo qua `~$*.docx` va `~$*.doc`
-- tim so cong chung trong noi dung file Word
-- trich xuat JSON
-- ghi output vao `output/`
-- ghi manifest vao `runs/`
-- ghi registry vao `registry.sqlite3`
+- Hỗ trợ cả `.docx` và `.doc`
+- Bỏ qua `~$*.docx` và `~$*.doc`
+- Tìm số công chứng trong nội dung file Word
+- Trích xuất JSON
+- Ghi output vào `output/`
+- Ghi manifest vào `runs/`
+- Ghi registry vào `registry.sqlite3`
 
-## Trich xuat 1 file
+## Upload hồ sơ (Tab 2)
 
-Tab `Trich Xuat 1 File`:
-- chon 1 file Word (`.docx` hoac `.doc`)
-- bam `Trich Xuat 1 File`
+Luồng dùng:
+1. Chạy batch scan trước để tạo `manifest`
+2. Mở tab `Upload hồ sơ`
+3. Chọn file manifest trong `runs/`
+4. Chọn file Excel đối chiếu hoặc bấm `Tải từ web`
+5. Bấm `Refresh Queue`
+6. Bấm `Start Dry-run`
 
-Ket qua:
-- in log trong UI
-- luu file `*_extracted.json` canh file goc
+Tool sẽ:
+- Đọc queue theo `run_id` trong manifest
+- Đối chiếu cột A của file Excel số công chứng
+- Loại các hồ sơ trùng số đã tồn tại trên web
+- Mở từng tab Playwright và dừng trước nút `Lưu`
 
-## Upload Playwright
+Sau khi đã tự kiểm tra và bấm `Lưu` trên web:
+- Quay lại UI
+- Chọn các record đã xong
+- Bấm `Finalize Selected`
 
-Luong dung:
-1. Chay batch scan truoc de tao `manifest`
-2. Mo tab `Upload Playwright`
-3. Chon file manifest trong `runs/`
-4. Chon file Excel doi chieu hoac bam `Tai tu web`
-5. Bam `Refresh Queue`
-6. Bam `Start Dry-run`
+Nếu vẫn còn record chưa xử lý:
+- Bấm `Start Dry-run` lại trên cùng manifest
+- Tool sẽ lấy chunk tiếp theo (tối đa 10 hồ sơ mỗi lần)
 
-Tool se:
-- doc queue theo `run_id` trong manifest
-- doi chieu cot A cua file Excel so cong chung
-- loai cac ho so trung so da ton tai tren web
-- mo tung tab Playwright va dung truoc nut `Luu`
+## File cấu hình
 
-Sau khi da tu kiem tra va bam `Luu` tren web:
-- quay lai UI
-- chon cac record da xong
-- bam `Finalize Selected`
-
-Neu van con record chua xu ly:
-- bam `Start Dry-run` lai tren cung manifest
-- tool se lay chunk tiep theo
-
-## File cau hinh
-
-Mau `.env.example`:
+Mẫu `.env.example`:
 
 ```env
 ND_BASE_URL=https://congchung.namdinh.gov.vn
@@ -107,22 +100,22 @@ ND_MAX_PREPARED_TABS=10
 ND_POST_PREPARE_DELAY_MS=1500
 ```
 
-## Output va log
+## Output và log
 
-- `output/<contract_no>_<hash>.json`
-- `runs/<timestamp>.json`
-- `registry.sqlite3`
-- `logs/playwright_uploader.log`
-- `upload_runs/<timestamp_runid>/`
-
-Moi artifact dry-run thuong gom:
-- `dry_run_trace.log`
-- `before_save_<so_cong_chung>.png`
-- `debug_<so_cong_chung>.json`
+| Path | Nội dung |
+|---|---|
+| `output/<so_cong_chung>_<hash>.json` | Kết quả trích xuất từng hợp đồng |
+| `runs/<timestamp>.json` | Manifest của mỗi lần batch scan |
+| `registry.sqlite3` | Registry toàn bộ records + trạng thái upload |
+| `logs/playwright_uploader.log` | Log Playwright uploader |
+| `upload_runs/<timestamp_runid>/` | Artifact dry-run (screenshot, debug JSON, trace) |
 
 ## Troubleshooting nhanh
 
-- Thieu Python/Playwright: chay lai `run_ui.bat`
-- Thieu `openpyxl`: chay lai `run_ui.bat`
-- Khong upload duoc vi chua dang nhap: mo `Cau hinh uploader` va `Luu va dang nhap`
-- Khong doi chieu duoc Excel: kiem tra file export va cot A
+| Triệu chứng | Cách xử lý |
+|---|---|
+| Thiếu Python/Playwright | Chạy lại `run_ui_pyqt6.bat` |
+| Thiếu `openpyxl` | Chạy lại `run_ui_pyqt6.bat` |
+| Không upload được, chưa đăng nhập | Mở `Cấu hình uploader` → `Lưu và đăng nhập` |
+| Không đối chiếu được Excel | Kiểm tra file export và cột A |
+| UI hiển thị sai DPI trên màn hình HiDPI | Kiểm tra Windows Display Scale |

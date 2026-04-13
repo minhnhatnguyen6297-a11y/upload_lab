@@ -67,6 +67,97 @@ Ngay tong ket: 2026-04-07
   - tim cum `quyen su dung dat ... co dia chi tai`
   - lay den het phan thong tin GCN / ngay cap / cap nhat bien dong
 
+## Ngoai Le Ho So The Chap
+
+- Ho so the chap ngan hang thuong khong co file Word day du cua hop dong, ma chi co 1 file tom tat / loi chung.
+- Phan duong su uu tien doc theo nhan:
+  - `Ben the chap`
+  - `Ben nhan the chap`
+- `Ben nhan the chap` co the la phap nhan, can giu du:
+  - ten ngan hang / chi nhanh
+  - dia chi dang ky
+  - nguoi dai dien ky
+- Neu file tom tat khong co block `tai_san` day du ma chi the hien ngay trong tieu de, cho phep fallback toi thieu:
+  - `quyen su dung dat`
+  - hoac `quyen su dung dat va tai san gan lien voi dat`
+- Khi doc `.docx`, can giu dung thu tu paragraph/table; neu khong se rat de tach sai `Ben the chap` va `Ben nhan the chap`.
+
+## Bo Sung Ho So Thua Ke
+
+### 4. Van ban phan chia di san
+
+- Tieu de canonical:
+  - `Van ban phan chia di san`
+- Khong dung cau truc `Ben A / Ben B`.
+- Duong su cua mau nay la nhom nguoi ky o phan mo dau, thuong mo dau bang cum:
+  - `Chung toi la nhung nguoi duoc huong di san ...`
+- Rule lay `duong_su`:
+  - start = dong `Chung toi la nhung nguoi duoc huong di san ...`
+  - end = truoc:
+    - `Chung toi tu nguyen lap Van ban nay ...`
+    - hoac `Nguoi de lai di san:`
+- Khong lay vao `duong_su` cac doan giai trinh o phan sau nhu:
+  - `Nguoi de lai di san`
+  - `Nguoi thua ke`
+  - thong tin vo/chong/con duoc liet ke de xac dinh hang thua ke
+- Nhan hien thi nen dung:
+  - `NHUNG NGUOI HUONG DI SAN`
+
+#### Rule lay `tai_san` cho van ban phan chia di san
+
+- Uu tien bat dau tu dong mo ta tai san thuc te:
+  - `quyen su dung dat ... co dia chi tai`
+  - hoac `phan quyen su dung dat ... co dia chi tai`
+- Neu mau co heading `Di san:` hoac `Di san cua ... de lai la:` thi block `tai_san` nam ngay sau heading nay.
+- Dung truoc cac marker:
+  - `Nguoi thua ke:`
+  - `Nhung nguoi thua ke`
+  - `Noi dung phan chia di san`
+  - `Bang Van ban nay`
+  - `Loi chung`
+- Khong de block `tai_san` nuot sang phan ke khai hang thua ke, ty le huong, hoac loi cam doan.
+
+### 5. Van ban tu choi nhan di san
+
+- Tieu de canonical:
+  - `Van ban tu choi nhan di san`
+- Mau nay thuong chi co 1 nguoi lap van ban, mo dau bang cum:
+  - `Toi la:`
+- Khong dung cau truc `Ben A / Ben B`.
+- Rule lay `duong_su`:
+  - start = sau cum `Toi la:`
+  - end = truoc:
+    - `Nay, toi tu nguyen lap Van ban nay ...`
+    - hoac `Theo quy dinh cua phap luat ...`
+- Nhan hien thi nen dung:
+  - `NGUOI TU CHOI NHAN DI SAN`
+
+#### Rule lay `tai_san` cho van ban tu choi nhan di san
+
+- Mau nay co the co nhieu tai san.
+- Uu tien bat dau tu:
+  - `1. Tai san thu nhat:`
+  - hoac dong `quyen su dung dat ... co dia chi tai`
+- Neu co `2. Tai san thu hai`, `3. Tai san thu ba` thi giu cung 1 block `tai_san`.
+- Dung truoc cac marker:
+  - `Bang Van ban nay, toi ... tu choi nhan ky phan thua ke`
+  - `Toi xin cam doan`
+  - `Nguoi tu choi huong di san`
+  - `Loi chung`
+- Neu trong tai san thu hai/thu ba co bang thi phai giu nguyen thu tu paragraph/table de khong mat dong thong tin thua dat.
+
+### Rule so cong chung cho nhom thua ke
+
+- Nhom thua ke co the dung dinh dang:
+  - `2433.2025/PCDS/CCGD`
+  - `2233.2025/TCDS/CCGD`
+- Khi scan/raw co the giu du hau to loai van ban:
+  - `2433/2025/PCDS/CCGD`
+  - `2233/2025/TCDS/CCGD`
+- Khi dua vao web field `so_cong_chung`, can rut gon ve:
+  - `2433/2025`
+  - `2233/2025`
+
 ## Ket Luan Ngan
 
 - Rule cot loi khong nen tach qua phuc tap theo 3 loai van ban.
