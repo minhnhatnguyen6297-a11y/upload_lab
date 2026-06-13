@@ -13,3 +13,4 @@ _release/
 registry.sqlite3
 nd_storage_state.json
 428_2026_CCGD_extracted.json
+.superpowers/

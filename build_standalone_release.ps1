@@ -15,17 +15,15 @@ $filesToCopy = @(
     "__init__.py",
     "batch_scan.py",
     "bootstrap_ui.py",
-    "bootstrap_ui_pyqt6.py",
     "build_standalone_release.ps1",
     "extract_contract.py",
     "HUONG_DAN.md",
     "install_python_windows.ps1",
     "playwright_uploader.py",
     "README.md",
+    "review_regex_samples.py",
     "requirements.txt",
     "run_ui.bat",
-    "run_ui_pyqt6.bat",
-    "ui_app_pyqt6.py",
     "ui_runner.py",
     "uploader_selectors.py"
 )
@@ -54,5 +52,13 @@ foreach ($directoryName in $directoriesToCopy) {
     }
     Copy-Item -LiteralPath $source -Destination (Join-Path $releaseRoot $directoryName) -Recurse -Force
 }
+
+$regexReviewRoot = Join-Path $releaseRoot "regex_review_samples"
+New-Item -ItemType Directory -Path (Join-Path $regexReviewRoot "input") -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $regexReviewRoot "reports") -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $toolRoot "regex_review_samples\.gitignore") -Destination (Join-Path $regexReviewRoot ".gitignore") -Force
+Copy-Item -LiteralPath (Join-Path $toolRoot "regex_review_samples\README.md") -Destination (Join-Path $regexReviewRoot "README.md") -Force
+New-Item -ItemType File -Path (Join-Path $regexReviewRoot "input\.gitkeep") -Force | Out-Null
+New-Item -ItemType File -Path (Join-Path $regexReviewRoot "reports\.gitkeep") -Force | Out-Null
 
 Write-Host "[OK] Da tao ban standalone tai: $releaseRoot"

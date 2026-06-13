@@ -231,6 +231,107 @@ class UploadLabExtractContractTests(unittest.TestCase):
         self.assertEqual(len(payload["raw"]["ben_a"]["nguoi"]), 2)
         self.assertEqual(len(payload["raw"]["ben_b"]["nguoi"]), 1)
 
+    def test_extract_company_representative_with_expanded_dai_dien_label(self):
+        docx_path = make_docx(
+            self.root / "representative_label.docx",
+            "HOP DONG THE CHAP QUYEN SU DUNG DAT",
+            "I. BEN THE CHAP",
+            "Ong: Tran Van A Sinh ngay: 01/01/1980",
+            "Can cuoc cong dan so: 036080000001 do Bo Cong an cap ngay 01/01/2024;",
+            "Thuong tru tai: xa A, tinh B.",
+            "II. BEN NHAN THE CHAP",
+            "NGAN HANG THUONG MAI CO PHAN DEMO",
+            "Dia chi dang ky: so 1, phuong A, tinh B.",
+            "Dai dien theo phap luat: Ong Nguyen Huu Dung Chuc vu: Pho giam doc chi nhanh",
+            "Can cuoc cong dan so: 036081017402 do Bo Cong an cap ngay 02/07/2021",
+            "So cong chung 473/2026/CCGD",
+        )
+
+        payload = extract(docx_path)
+
+        self.assertIn("Nguyen Huu Dung", payload["web_form"]["nguoi_yeu_cau"])
+        self.assertEqual(len(payload["raw"]["ben_b"]["nguoi"]), 1)
+
+    def test_extract_commitment_supports_numbered_spouse_prefix_before_title(self):
+        docx_path = make_docx(
+            self.root / "cam_ket_numbered_spouse.docx",
+            "VĂN BẢN CAM KẾT TÀI SẢN RIÊNG",
+            "Chúng tôi gồm có:",
+            "1. Người vợ - Bà Phạm Thị Hạt; Sinh ngày: 01/08/1982;",
+            "Căn cước công dân số: 036182010256 do Cục cảnh sát quản lý hành chính về trật tự xã hội cấp ngày 05/09/2022;",
+            "Thường trú tại: xã Yên Đồng, tỉnh Ninh Bình",
+            "2. Người chồng - Ông Vũ Văn Minh; Sinh ngày: 07/02/1979;",
+            "Căn cước công dân số: 036079008030 do Cục cảnh sát quản lý hành chính về trật tự xã hội cấp ngày 05/09/2022;",
+            "Thường trú tại: xã Yên Đồng, tỉnh Ninh Bình.",
+            "Hiện nay, bà Phạm Thị Hạt đang làm các thủ tục để nhận chuyển nhượng quyền sử dụng đất có địa chỉ tại: xã A, tỉnh B.",
+            "- Thửa đất số: 20",
+            "Số công chứng 1272/2025/CCGD",
+        )
+
+        payload = extract(docx_path)
+
+        self.assertIn("Phạm Thị Hạt", payload["web_form"]["nguoi_yeu_cau"])
+        self.assertIn("Vũ Văn Minh", payload["web_form"]["duong_su"])
+
+    def test_extract_mortgage_supports_parenthesized_ab_party_headings(self):
+        docx_path = make_docx(
+            self.root / "mortgage_ab_headings.docx",
+            "HỢP ĐỒNG THẾ CHẤP QUYỀN SỬ DỤNG ĐẤT",
+            "(A) BÊN THẾ CHẤP",
+            "Ông: Hoàng Hữu Dực | Ngày sinh: 04/07/1970",
+            "Địa chỉ nơi cư trú: xã Yên Đồng, tỉnh Ninh Bình",
+            "Căn cước công dân: 036070003911 do Cục CS QLHC về TTXH cấp ngày 11/08/2021",
+            "và Bà: Hoàng Thị Hường Ngày sinh: 20/02/1978",
+            "Địa chỉ nơi cư trú: xã Yên Đồng, tỉnh Ninh Bình",
+            "Căn cước công dân: 036178006510 do Cục CS QLHC về TTXH cấp ngày 28/06/2021",
+            "(B) BÊN NHẬN THẾ CHẤP",
+            "NGÂN HÀNG THƯƠNG MẠI CỔ PHẦN NGOẠI THƯƠNG VIỆT NAM – CHI NHÁNH NAM ĐỊNH",
+            "Địa chỉ đăng ký: Số 629 Trần Hưng Đạo, phường Nam Định, tỉnh Ninh Bình",
+            "Đại diện: Ông Nguyễn Hữu Dụng Chức vụ: Phó giám đốc chi nhánh",
+            "Căn cước công dân số: 036081017402 do Bộ Công an cấp ngày 02/07/2021",
+            "Số công chứng 82/2026/CCGD",
+        )
+
+        payload = extract(docx_path)
+
+        self.assertEqual(len(payload["raw"]["ben_a"]["nguoi"]), 2)
+        self.assertIn("Nguyễn Hữu Dụng", payload["web_form"]["nguoi_yeu_cau"])
+
+    def test_extract_mortgage_keeps_bank_representative_without_birth_or_id(self):
+        docx_path = make_docx(
+            self.root / "mortgage_bank_representative_no_id.docx",
+            "HỢP ĐỒNG THẾ CHẤP QUYỀN SỬ DỤNG ĐẤT",
+            "(A) BÊN THẾ CHẤP",
+            "Ông: Hoàng Hữu Dực | Ngày sinh: 04/07/1970",
+            "Căn cước công dân: 036070003911 do Cục CS QLHC về TTXH cấp ngày 11/08/2021",
+            "(B) BÊN NHẬN THẾ CHẤP",
+            "NGÂN HÀNG THƯƠNG MẠI CỔ PHẦN NGOẠI THƯƠNG VIỆT NAM – CHI NHÁNH NAM ĐỊNH",
+            "Đại diện: Ông Nguyễn Hữu Dụng Chức vụ: Phó giám đốc chi nhánh",
+            "Số công chứng 82/2026/CCGD",
+        )
+
+        payload = extract(docx_path)
+
+        self.assertIn("Nguyễn Hữu Dụng", payload["web_form"]["nguoi_yeu_cau"])
+        self.assertEqual(len(payload["raw"]["ben_b"]["nguoi"]), 1)
+
+    def test_find_tai_san_stops_before_numbered_price_section(self):
+        text = "\n".join(
+            [
+                "HOP DONG CHUYEN NHUONG QUYEN SU DUNG DAT",
+                "quyen su dung dat cua ben A co dia chi tai: xa A, tinh B.",
+                "- Thua dat so: 10",
+                "- Dien tich: 100 m2",
+                "2. Gia chuyen nhuong va phuong thuc thanh toan",
+                "Gia chuyen nhuong la 1.000.000.000 dong.",
+            ]
+        )
+
+        tai_san = find_tai_san(text)
+
+        self.assertIn("Thua dat so: 10", tai_san)
+        self.assertNotIn("Gia chuyen nhuong", tai_san)
+
     def test_extract_inheritance_partition_uses_single_heir_group_and_stops_asset_before_heirs_section(self):
         docx_path = make_docx(
             self.root / "phan_chia_di_san.docx",
