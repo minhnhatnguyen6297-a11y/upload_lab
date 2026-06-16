@@ -16,6 +16,7 @@ REQUIREMENTS_PATH = BASE_DIR / "requirements.txt"
 SETUP_STAMP_PATH = BASE_DIR / ".ui_setup_state.json"
 UI_RUNNER_PATH = BASE_DIR / "ui_runner.py"
 RUNTIME_DIRS = ("output", "runs", "logs", "downloads", "upload_runs")
+RUNTIME_MODULES = ("docx", "dotenv", "playwright", "openpyxl", "PySide6")
 
 if sys.platform.startswith("win"):
     VENV_PYTHON = BASE_DIR / ".venv" / "Scripts" / "python.exe"
@@ -109,7 +110,7 @@ import json
 import os
 import sys
 
-mods = {name: bool(util.find_spec(name)) for name in ("docx", "dotenv", "playwright", "openpyxl")}
+mods = {name: bool(util.find_spec(name)) for name in RUNTIME_MODULES}
 chromium_ready = False
 if mods["playwright"]:
     try:
@@ -137,7 +138,7 @@ print(json.dumps({
         return {
             "ok": False,
             "version": [0, 0, 0],
-            "modules": {"docx": False, "dotenv": False, "playwright": False, "openpyxl": False},
+            "modules": {name: False for name in RUNTIME_MODULES},
             "chromium_ready": False,
             "probe_error": completed.stderr.strip() or completed.stdout.strip(),
         }
@@ -212,7 +213,7 @@ def should_install_requirements(state: dict, runtime: dict, requirements_mtime_n
     if state.get("requirements_mtime_ns") != requirements_mtime_ns:
         return True
     modules = dict(runtime.get("modules") or {})
-    return not all(modules.get(name, False) for name in ("docx", "dotenv", "playwright", "openpyxl"))
+    return not all(modules.get(name, False) for name in RUNTIME_MODULES)
 
 
 def should_install_browser(state: dict, runtime: dict) -> bool:
@@ -248,7 +249,7 @@ def ensure_dependencies(python_exe: Path) -> None:
         runtime = probe_runtime(python_exe)
 
     modules = dict(runtime.get("modules") or {})
-    missing_modules = [name for name in ("docx", "dotenv", "playwright", "openpyxl") if not modules.get(name)]
+    missing_modules = [name for name in RUNTIME_MODULES if not modules.get(name)]
     if missing_modules:
         probe_error = runtime.get("probe_error")
         detail = f" Missing: {', '.join(missing_modules)}."

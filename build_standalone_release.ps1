@@ -29,7 +29,8 @@ $filesToCopy = @(
 )
 
 $directoriesToCopy = @(
-    "ui"
+    "ui",
+    "ui_qt"
 )
 
 if (Test-Path -LiteralPath $releaseRoot) {
@@ -48,6 +49,9 @@ foreach ($fileName in $filesToCopy) {
 foreach ($directoryName in $directoriesToCopy) {
     $source = Join-Path $toolRoot $directoryName
     if (-not (Test-Path -LiteralPath $source)) {
+        if ($directoryName -eq "ui_qt") {
+            continue
+        }
         throw "Khong tim thay thu muc can phat hanh: $directoryName"
     }
     Copy-Item -LiteralPath $source -Destination (Join-Path $releaseRoot $directoryName) -Recurse -Force
