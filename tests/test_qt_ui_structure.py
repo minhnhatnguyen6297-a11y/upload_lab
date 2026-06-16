@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -29,6 +30,25 @@ class QtUIStructureTests(unittest.TestCase):
 
         self.assertTrue(callable(run_qt_app))
         self.assertEqual(UploadLabMainWindow.__name__, "UploadLabMainWindow")
+
+    def test_qt_main_window_loads_ui_and_preserves_working_dir(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from PySide6.QtWidgets import QApplication
+
+        from ui_qt.main_window import UploadLabMainWindow
+
+        app = QApplication.instance() or QApplication([])
+        working_dir = Path("D:/upload_lab_repo/.worktrees/qt-workflow-redesign")
+        window = UploadLabMainWindow(working_dir=working_dir)
+
+        self.assertEqual(window.windowTitle(), "Upload Lab")
+        self.assertIsNotNone(window.centralWidget())
+        self.assertTrue(hasattr(window, "ui"))
+        self.assertEqual(window.centralWidget().objectName(), "centralWidget")
+        self.assertEqual(window.ui.objectName(), "centralWidget")
+        self.assertEqual(window.working_dir, working_dir)
+        self.assertIsNotNone(app)
 
     def test_pyside6_import_available_after_install(self):
         if importlib.util.find_spec("PySide6") is None:
