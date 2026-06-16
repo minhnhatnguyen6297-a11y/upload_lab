@@ -13,7 +13,6 @@ class TkinterUIStructureTests(unittest.TestCase):
     def test_ui_runner_is_thin_entrypoint(self):
         source = inspect.getsource(ui_runner)
 
-        self.assertIn("from ui.app import UploadLabApp", source)
         self.assertLess(len(source.splitlines()), 40)
 
     def test_modular_tabs_are_exposed(self):

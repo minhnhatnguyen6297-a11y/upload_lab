@@ -31,6 +31,12 @@ class QtUIStructureTests(unittest.TestCase):
         self.assertTrue(callable(run_qt_app))
         self.assertEqual(UploadLabMainWindow.__name__, "UploadLabMainWindow")
 
+    def test_ui_runner_uses_qt_entrypoint(self):
+        source = Path("ui_runner.py").read_text(encoding="utf-8")
+
+        self.assertIn("from ui_qt.app import run_qt_app", source)
+        self.assertIn("return run_qt_app()", source)
+
     def test_qt_main_window_loads_ui_and_preserves_working_dir(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 

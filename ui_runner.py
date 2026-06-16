@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from ui.app import UploadLabApp
+from ui_qt.app import run_qt_app
 
 
 def main() -> int:
-    app = UploadLabApp()
-    app.mainloop()
-    return 0
+    return run_qt_app()
 
 
 if __name__ == "__main__":
