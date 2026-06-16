@@ -88,14 +88,17 @@ def classify_scan_records(
                 continue
             seen_non_empty_contract_nos.add(normalized_contract_no)
 
-        if normalized_contract_no not in excel_contract_nos:
-            not_in_excel_rows.append(row)
+        if normalized_contract_no in excel_contract_nos:
+            found_excel_contract_nos.add(normalized_contract_no)
+            if normalized_contract_no in web_contract_nos:
+                web_duplicate_rows.append(row)
+                continue
+        elif normalized_contract_no in web_contract_nos:
+            web_duplicate_rows.append(row)
             continue
 
-        found_excel_contract_nos.add(normalized_contract_no)
-
-        if normalized_contract_no in web_contract_nos:
-            web_duplicate_rows.append(row)
+        if normalized_contract_no not in excel_contract_nos:
+            not_in_excel_rows.append(row)
             continue
 
         if list(record.missing_fields or []):

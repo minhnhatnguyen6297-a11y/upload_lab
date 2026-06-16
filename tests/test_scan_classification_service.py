@@ -51,6 +51,17 @@ class ScanClassificationServiceTests(unittest.TestCase):
         self.assertEqual([row.record_id for row in result.web_duplicate_rows], [10])
         self.assertEqual(result.valid_upload_rows, [])
 
+    def test_classifies_web_duplicate_before_not_in_excel(self):
+        result = classify_scan_records(
+            [FakeRecord(10, "9/2026/CCGD", "extracted", Path("a.docx"), [])],
+            self._analysis(),
+            existing_web_contract_nos={"9/2026"},
+        )
+
+        self.assertEqual([row.record_id for row in result.web_duplicate_rows], [10])
+        self.assertEqual(result.not_in_excel_rows, [])
+        self.assertEqual(result.valid_upload_rows, [])
+
     def test_classifies_local_duplicates_after_first_valid_row(self):
         result = classify_scan_records(
             [
