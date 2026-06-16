@@ -45,6 +45,7 @@ class QtUIStructureTests(unittest.TestCase):
         self.assertEqual(window.windowTitle(), "Upload Lab")
         self.assertIsNotNone(window.centralWidget())
         self.assertTrue(hasattr(window, "ui"))
+        self.assertIs(window.ui, window.centralWidget())
         self.assertEqual(window.centralWidget().objectName(), "centralWidget")
         self.assertEqual(window.ui.objectName(), "centralWidget")
         self.assertEqual(window.working_dir, working_dir)
