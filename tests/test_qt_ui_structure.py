@@ -17,6 +17,10 @@ class QtUIStructureTests(unittest.TestCase):
 
     def test_qt_package_files_exist(self):
         self.assertTrue(Path("ui_qt").is_dir())
+        self.assertTrue(Path("ui_qt/__init__.py").exists())
+        self.assertTrue(Path("ui_qt/app.py").exists())
+        self.assertTrue(Path("ui_qt/main_window.py").exists())
+        self.assertTrue(Path("ui_qt/widgets.py").exists())
         self.assertTrue(Path("ui_qt/forms/main_window.ui").exists())
 
     def test_qt_entrypoint_imports(self):
