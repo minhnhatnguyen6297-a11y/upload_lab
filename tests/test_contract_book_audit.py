@@ -128,6 +128,20 @@ class ContractBookAuditTests(unittest.TestCase):
             for warning in analysis.warning_rows
         ))
 
+    def test_does_not_warn_ordinal_order_on_year_rollover(self):
+        path = self._make_book([
+            ("99/2025", "31/12/2025"),
+            ("01/2026", "01/01/2026"),
+        ])
+
+        analysis = analyze_contract_book(path)
+
+        self.assertFalse(any(
+            warning.kind == ContractBookWarningKind.ORDINAL_ORDER
+            and warning.row_index == 3
+            for warning in analysis.warning_rows
+        ))
+
     def test_skips_header_row_when_column_a_looks_like_contract_header(self):
         path = self._make_book([
             ("SO CONG CHUNG", "NGAY, THANG, NAM CONG CHUNG"),

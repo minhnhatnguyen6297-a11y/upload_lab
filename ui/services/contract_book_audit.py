@@ -171,7 +171,7 @@ def analyze_contract_book(export_path: Path | str) -> ContractBookAnalysis:
     valid_rows: list[ContractBookRow] = []
     warning_rows: list[ContractBookWarning] = []
     previous_date: date | None = None
-    previous_ordinal: int | None = None
+    previous_ordinal_by_year: dict[int, int] = {}
 
     for row_index, raw_contract_no, raw_date in _read_rows(path):
         raw_contract_text = _stringify_cell_value(raw_contract_no)
@@ -240,6 +240,7 @@ def analyze_contract_book(export_path: Path | str) -> ContractBookAnalysis:
                 )
             previous_date = contract_date
 
+        previous_ordinal = previous_ordinal_by_year.get(year)
         if previous_ordinal is not None and ordinal < previous_ordinal:
             warning_rows.append(
                 ContractBookWarning(
@@ -250,7 +251,7 @@ def analyze_contract_book(export_path: Path | str) -> ContractBookAnalysis:
                     message="So cong chung bi lui so voi dong truoc.",
                 )
             )
-        previous_ordinal = ordinal
+        previous_ordinal_by_year[year] = ordinal
 
     missing_numbers = _build_missing_numbers(valid_rows)
     ordinals = [row.ordinal for row in valid_rows]
