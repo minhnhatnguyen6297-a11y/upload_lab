@@ -64,6 +64,20 @@ class ScanClassificationServiceTests(unittest.TestCase):
         self.assertEqual([row.record_id for row in result.valid_upload_rows], [10])
         self.assertEqual([row.record_id for row in result.duplicate_local_rows], [11])
 
+    def test_classifies_local_duplicates_after_missing_field_row(self):
+        result = classify_scan_records(
+            [
+                FakeRecord(10, "1/2026/CCGD", "extracted", Path("a.docx"), ["tai_san"]),
+                FakeRecord(11, "1/2026/CCGD", "extracted", Path("b.docx"), []),
+            ],
+            self._analysis(),
+            existing_web_contract_nos=set(),
+        )
+
+        self.assertEqual([row.record_id for row in result.missing_field_rows], [10])
+        self.assertEqual([row.record_id for row in result.duplicate_local_rows], [11])
+        self.assertEqual(result.valid_upload_rows, [])
+
     def test_reports_excel_numbers_missing_from_valid_scan_rows(self):
         result = classify_scan_records(
             [

@@ -67,11 +67,18 @@ def classify_scan_records(
     missing_field_rows: list[ClassifiedScanRow] = []
     web_duplicate_rows: list[ClassifiedScanRow] = []
     duplicate_local_rows: list[ClassifiedScanRow] = []
+    seen_non_empty_contract_nos: set[str] = set()
     matched_valid_contract_nos: set[str] = set()
 
     for record in records:
         normalized_contract_no = normalize_contract_no_for_compare(record.contract_no)
         row = _make_row(record, contract_no=normalized_contract_no, selected=False)
+
+        if normalized_contract_no:
+            if normalized_contract_no in seen_non_empty_contract_nos:
+                duplicate_local_rows.append(row)
+                continue
+            seen_non_empty_contract_nos.add(normalized_contract_no)
 
         if normalized_contract_no and normalized_contract_no in web_contract_nos:
             web_duplicate_rows.append(row)
@@ -83,10 +90,6 @@ def classify_scan_records(
 
         if list(record.missing_fields or []):
             missing_field_rows.append(row)
-            continue
-
-        if normalized_contract_no in matched_valid_contract_nos:
-            duplicate_local_rows.append(row)
             continue
 
         valid_rows.append(
