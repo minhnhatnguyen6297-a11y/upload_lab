@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>UploadLabMainWindow</class>
+ <widget class="QWidget" name="centralWidget">
+  <layout class="QVBoxLayout" name="mainLayout">
+   <item>
+    <widget class="QTabWidget" name="mainTabs">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <widget class="QWidget" name="excelTab">
+      <attribute name="title">
+       <string>Excel &amp; Missing Numbers</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="excelLayout">
+       <item>
+        <widget class="QLabel" name="excelPlaceholder">
+         <property name="text">
+          <string>Load Excel, show parsed numbers, missing numbers, and warnings.</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="folderTab">
+      <attribute name="title">
+       <string>Folder Scan &amp; Upload</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="folderLayout">
+       <item>
+        <widget class="QLabel" name="folderPlaceholder">
+         <property name="text">
+          <string>Scan one selected folder, preselect valid files, and upload selected rows.</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="regexTab">
+      <attribute name="title">
+       <string>Regex Review</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="regexLayout">
+       <item>
+        <widget class="QLabel" name="regexPlaceholder">
+         <property name="text">
+          <string>Maintainer-only regex review workflow.</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPlainTextEdit" name="logText">
+     <property name="readOnly">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

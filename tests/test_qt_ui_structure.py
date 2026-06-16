@@ -15,10 +15,16 @@ class QtUIStructureTests(unittest.TestCase):
 
         self.assertIn("PySide6", requirements)
 
-    @unittest.skip("Qt package is created in Task 6")
     def test_qt_package_files_exist(self):
         self.assertTrue(Path("ui_qt").is_dir())
         self.assertTrue(Path("ui_qt/forms/main_window.ui").exists())
+
+    def test_qt_entrypoint_imports(self):
+        from ui_qt.app import run_qt_app
+        from ui_qt.main_window import UploadLabMainWindow
+
+        self.assertTrue(callable(run_qt_app))
+        self.assertEqual(UploadLabMainWindow.__name__, "UploadLabMainWindow")
 
     def test_pyside6_import_available_after_install(self):
         if importlib.util.find_spec("PySide6") is None:
