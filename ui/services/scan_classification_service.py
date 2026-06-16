@@ -38,11 +38,12 @@ class ScanClassification:
     excel_missing_in_folder: list[str]
 
 
-def _make_row(record: _ScanRecord, *, contract_no: str, selected: bool) -> ClassifiedScanRow:
+def _make_row(record: _ScanRecord, *, selected: bool) -> ClassifiedScanRow:
+    normalized_contract_no = _canonical_contract_no(record.contract_no)
     return ClassifiedScanRow(
         record_id=int(record.record_id),
-        contract_no=contract_no,
-        normalized_contract_no=contract_no,
+        contract_no=str(record.contract_no),
+        normalized_contract_no=normalized_contract_no,
         status=str(record.status),
         source_file=str(record.source_file),
         missing_fields=list(record.missing_fields or []),
@@ -84,7 +85,7 @@ def classify_scan_records(
 
     for record in records:
         normalized_contract_no = _canonical_contract_no(record.contract_no)
-        row = _make_row(record, contract_no=normalized_contract_no, selected=False)
+        row = _make_row(record, selected=False)
 
         if normalized_contract_no:
             if normalized_contract_no in seen_non_empty_contract_nos:

@@ -107,6 +107,8 @@ class ScanClassificationServiceTests(unittest.TestCase):
         )
 
         self.assertEqual([row.record_id for row in result.valid_upload_rows], [10])
+        self.assertEqual(result.valid_upload_rows[0].contract_no, "01/2026/CCGD")
+        self.assertEqual(result.valid_upload_rows[0].normalized_contract_no, "1/2026")
         self.assertEqual(result.not_in_excel_rows, [])
 
     def test_reports_excel_numbers_missing_from_valid_scan_rows(self):
