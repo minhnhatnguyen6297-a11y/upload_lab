@@ -20,10 +20,12 @@ class _ScanRecord(Protocol):
 class ClassifiedScanRow:
     record_id: int
     contract_no: str
+    normalized_contract_no: str
     status: str
     source_file: str
     missing_fields: list[str]
     selected: bool
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -40,10 +42,12 @@ def _make_row(record: _ScanRecord, *, contract_no: str, selected: bool) -> Class
     return ClassifiedScanRow(
         record_id=int(record.record_id),
         contract_no=contract_no,
+        normalized_contract_no=contract_no,
         status=str(record.status),
         source_file=str(record.source_file),
         missing_fields=list(record.missing_fields or []),
         selected=selected,
+        reason="Hop le de upload." if selected else "Khong hop le de upload.",
     )
 
 
@@ -109,10 +113,12 @@ def classify_scan_records(
             ClassifiedScanRow(
                 record_id=row.record_id,
                 contract_no=row.contract_no,
+                normalized_contract_no=row.normalized_contract_no,
                 status=row.status,
                 source_file=row.source_file,
                 missing_fields=row.missing_fields,
                 selected=True,
+                reason="Hop le de upload.",
             )
         )
 
