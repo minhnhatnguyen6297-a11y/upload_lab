@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import importlib
 import importlib.util
+import sys
 import unittest
 from pathlib import Path
+
+import bootstrap_ui
 
 
 class QtUIStructureTests(unittest.TestCase):
@@ -20,7 +24,14 @@ class QtUIStructureTests(unittest.TestCase):
         if importlib.util.find_spec("PySide6") is None:
             self.skipTest("PySide6 is not installed in this environment yet")
 
-        self.assertIsNotNone(importlib.util.find_spec("PySide6"))
+        module = importlib.import_module("PySide6")
+        self.assertIsNotNone(module)
+
+    def test_bootstrap_probe_runtime_handles_pyside6_in_child_process(self):
+        runtime = bootstrap_ui.probe_runtime(Path(sys.executable))
+
+        self.assertTrue(runtime.get("ok"), msg=runtime.get("probe_error"))
+        self.assertTrue(runtime["modules"]["PySide6"])
 
 
 if __name__ == "__main__":

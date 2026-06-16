@@ -104,31 +104,34 @@ def get_python_identity(python_exe: Path) -> dict:
 
 
 def probe_runtime(python_exe: Path) -> dict:
-    probe_script = """
-import importlib.util as util
-import json
-import os
-import sys
-
-mods = {name: bool(util.find_spec(name)) for name in RUNTIME_MODULES}
-chromium_ready = False
-if mods["playwright"]:
-    try:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as pw:
-            chromium_ready = os.path.exists(pw.chromium.executable_path)
-    except Exception:
-        chromium_ready = False
-
-print(json.dumps({
-    "version": list(sys.version_info[:3]),
-    "executable": sys.executable,
-    "prefix": sys.prefix,
-    "base_prefix": getattr(sys, "base_prefix", sys.prefix),
-    "modules": mods,
-    "chromium_ready": chromium_ready,
-}))
-"""
+    probe_script = "\n".join(
+        [
+            "import importlib.util as util",
+            "import json",
+            "import os",
+            "import sys",
+            "",
+            f"runtime_modules = {json.dumps(list(RUNTIME_MODULES))}",
+            "mods = {name: bool(util.find_spec(name)) for name in runtime_modules}",
+            'chromium_ready = False',
+            'if mods["playwright"]:',
+            "    try:",
+            "        from playwright.sync_api import sync_playwright",
+            "        with sync_playwright() as pw:",
+            "            chromium_ready = os.path.exists(pw.chromium.executable_path)",
+            "    except Exception:",
+            "        chromium_ready = False",
+            "",
+            "print(json.dumps({",
+            '    "version": list(sys.version_info[:3]),',
+            '    "executable": sys.executable,',
+            '    "prefix": sys.prefix,',
+            '    "base_prefix": getattr(sys, "base_prefix", sys.prefix),',
+            '    "modules": mods,',
+            '    "chromium_ready": chromium_ready,',
+            "}))",
+        ]
+    )
     completed = run_command(
         [str(python_exe), "-c", probe_script],
         capture_output=True,
