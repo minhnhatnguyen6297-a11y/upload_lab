@@ -31,6 +31,12 @@ class UploadSelectionServiceTests(unittest.TestCase):
 
         self.assertEqual(selection.selected_record_ids(), [1])
 
+    def test_can_unselect_using_string_record_id(self):
+        selection = UploadSelection.from_valid_rows([row(1), row(2)])
+        selection.set_selected("2", False)
+
+        self.assertEqual(selection.selected_record_ids(), [1])
+
     def test_select_all_valid_does_not_include_invalid_ids(self):
         selection = UploadSelection.from_valid_rows([row(1), row(2)])
         selection.set_selected(99, True)

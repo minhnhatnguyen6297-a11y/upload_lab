@@ -15,7 +15,8 @@ class UploadSelection:
         valid_ids = {int(row.record_id) for row in rows}
         return cls(valid_ids=valid_ids, selected_ids=set(valid_ids))
 
-    def set_selected(self, record_id: int, selected: bool) -> None:
+    def set_selected(self, record_id: int | str, selected: bool) -> None:
+        record_id = int(record_id)
         if record_id not in self.valid_ids:
             return
         if selected:
