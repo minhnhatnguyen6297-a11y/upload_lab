@@ -46,6 +46,23 @@ class WebListServiceTests(unittest.TestCase):
         self.assertEqual(result.contract_no, "405/2026")
         self.assertEqual(result.row_index, 2)
 
+    def test_read_exported_contract_rows_accepts_short_number_with_date_year(self):
+        export_path = self.root / "short.xlsx"
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet["A1"] = "SO CONG CHUNG"
+        sheet["B1"] = "NGAY"
+        sheet["A2"] = "123"
+        sheet["B2"] = "05/02/2026"
+        workbook.save(export_path)
+        workbook.close()
+
+        rows = read_exported_contract_rows(export_path)
+
+        self.assertEqual(rows[0].contract_no, "123/2026")
+        self.assertEqual(rows[0].year, 2026)
+        self.assertEqual(rows[0].ordinal, 123)
+
     def test_web_list_service_does_not_require_folder_or_manifest(self):
         rows = read_exported_contract_rows(self._make_export("100/2025", "101/2025"))
         missing = find_missing_contract_numbers(rows)

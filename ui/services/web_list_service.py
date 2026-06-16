@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import re
 
+from ui.services.contract_book_audit import analyze_contract_book
 from playwright_uploader import normalize_contract_no_for_compare
 
 
@@ -32,58 +32,18 @@ class ContractLookupResult:
     raw_value: str = ""
     message: str = ""
 
-
-def _header_key(value: str) -> str:
-    return re.sub(r"[^A-Z]", "", value.upper())
-
-
-def _parse_normalized_contract_no(value: str) -> tuple[int, int] | None:
-    match = re.fullmatch(r"(\d+)/(\d{4})", value)
-    if not match:
-        return None
-    return int(match.group(2)), int(match.group(1))
-
-
 def read_exported_contract_rows(export_path: Path | str) -> list[ContractListRow]:
-    path = Path(export_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Khong tim thay file Excel: {path}")
-
-    try:
-        from openpyxl import load_workbook
-    except Exception as exc:  # pragma: no cover - dependency wiring
-        raise RuntimeError("Thieu openpyxl trong moi truong tool.") from exc
-
-    rows: list[ContractListRow] = []
-    workbook = load_workbook(filename=str(path), read_only=True, data_only=True)
-    try:
-        sheet = workbook.active
-        for row_index, (cell_value,) in enumerate(
-            sheet.iter_rows(min_col=1, max_col=1, values_only=True),
-            start=1,
-        ):
-            raw_value = str(cell_value or "").strip()
-            if not raw_value:
-                continue
-            if row_index == 1 and "SOCONGCHUNG" in _header_key(raw_value):
-                continue
-            contract_no = normalize_contract_no_for_compare(raw_value)
-            parsed = _parse_normalized_contract_no(contract_no)
-            if not parsed:
-                continue
-            year, ordinal = parsed
-            rows.append(
-                ContractListRow(
-                    row_index=row_index,
-                    raw_value=raw_value,
-                    contract_no=contract_no,
-                    year=year,
-                    ordinal=ordinal,
-                )
-            )
-    finally:
-        workbook.close()
-    return rows
+    analysis = analyze_contract_book(export_path)
+    return [
+        ContractListRow(
+            row_index=row.row_index,
+            raw_value=row.raw_contract_no,
+            contract_no=row.contract_no,
+            year=row.year,
+            ordinal=row.ordinal,
+        )
+        for row in analysis.valid_rows
+    ]
 
 
 def find_missing_contract_numbers(rows: list[ContractListRow]) -> list[MissingContractNo]:
