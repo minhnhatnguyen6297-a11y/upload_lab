@@ -5,9 +5,12 @@ import importlib.util
 import os
 import sys
 import unittest
+import tempfile
+from unittest.mock import patch
 from pathlib import Path
 
 import bootstrap_ui
+import ui_runner
 
 
 class QtUIStructureTests(unittest.TestCase):
@@ -32,10 +35,9 @@ class QtUIStructureTests(unittest.TestCase):
         self.assertEqual(UploadLabMainWindow.__name__, "UploadLabMainWindow")
 
     def test_ui_runner_uses_qt_entrypoint(self):
-        source = Path("ui_runner.py").read_text(encoding="utf-8")
-
-        self.assertIn("from ui_qt.app import run_qt_app", source)
-        self.assertIn("return run_qt_app()", source)
+        with patch("ui_runner.run_qt_app", return_value=123) as mocked_run_qt_app:
+            self.assertEqual(ui_runner.main(), 123)
+            mocked_run_qt_app.assert_called_once_with()
 
     def test_qt_main_window_loads_ui_and_preserves_working_dir(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -45,17 +47,18 @@ class QtUIStructureTests(unittest.TestCase):
         from ui_qt.main_window import UploadLabMainWindow
 
         app = QApplication.instance() or QApplication([])
-        working_dir = Path("D:/upload_lab_repo/.worktrees/qt-workflow-redesign")
-        window = UploadLabMainWindow(working_dir=working_dir)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            working_dir = Path(temp_dir) / "working-dir-check"
+            window = UploadLabMainWindow(working_dir=working_dir)
 
-        self.assertEqual(window.windowTitle(), "Upload Lab")
-        self.assertIsNotNone(window.centralWidget())
-        self.assertTrue(hasattr(window, "ui"))
-        self.assertIs(window.ui, window.centralWidget())
-        self.assertEqual(window.centralWidget().objectName(), "centralWidget")
-        self.assertEqual(window.ui.objectName(), "centralWidget")
-        self.assertEqual(window.working_dir, working_dir)
-        self.assertIsNotNone(app)
+            self.assertEqual(window.windowTitle(), "Upload Lab")
+            self.assertIsNotNone(window.centralWidget())
+            self.assertTrue(hasattr(window, "ui"))
+            self.assertIs(window.ui, window.centralWidget())
+            self.assertEqual(window.centralWidget().objectName(), "centralWidget")
+            self.assertEqual(window.ui.objectName(), "centralWidget")
+            self.assertEqual(window.working_dir, working_dir)
+            self.assertIsNotNone(app)
 
     def test_pyside6_import_available_after_install(self):
         if importlib.util.find_spec("PySide6") is None:
