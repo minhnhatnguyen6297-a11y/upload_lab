@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import inspect
 import unittest
+from pathlib import Path
 
-import ui_runner
 from ui.app import UploadLabApp
 from ui.tabs.folder_workflow_tab import FolderWorkflowTab
 from ui.tabs.web_list_tab import WebListTab
@@ -11,7 +10,7 @@ from ui.tabs.web_list_tab import WebListTab
 
 class TkinterUIStructureTests(unittest.TestCase):
     def test_ui_runner_is_thin_entrypoint(self):
-        source = inspect.getsource(ui_runner)
+        source = Path("ui_runner.py").read_text(encoding="utf-8")
 
         self.assertLess(len(source.splitlines()), 40)
 
