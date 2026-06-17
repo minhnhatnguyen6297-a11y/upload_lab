@@ -10,7 +10,6 @@ from unittest.mock import patch
 from pathlib import Path
 
 import bootstrap_ui
-import ui_runner
 
 
 class QtUIStructureTests(unittest.TestCase):
@@ -35,7 +34,9 @@ class QtUIStructureTests(unittest.TestCase):
         self.assertEqual(UploadLabMainWindow.__name__, "UploadLabMainWindow")
 
     def test_ui_runner_uses_qt_entrypoint(self):
-        with patch("ui_runner.run_qt_app", return_value=123) as mocked_run_qt_app:
+        import ui_runner
+
+        with patch.object(ui_runner, "run_qt_app", return_value=123) as mocked_run_qt_app:
             self.assertEqual(ui_runner.main(), 123)
             mocked_run_qt_app.assert_called_once_with()
 
