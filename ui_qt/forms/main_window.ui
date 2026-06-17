@@ -14,10 +14,106 @@
       </attribute>
       <layout class="QVBoxLayout" name="excelLayout">
        <item>
-        <widget class="QLabel" name="excelPlaceholder">
+        <layout class="QHBoxLayout" name="excelPathLayout">
+         <item>
+          <widget class="QLineEdit" name="excelPathEdit"/>
+         </item>
+         <item>
+          <widget class="QPushButton" name="browseExcelButton">
+           <property name="text">
+            <string>Browse</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="loadExcelButton">
+           <property name="text">
+            <string>Load</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="excelSummaryLabel">
          <property name="text">
-          <string>Load Excel, show parsed numbers, missing numbers, and warnings.</string>
+          <string>Excel=0 | thieu=0 | canh bao=0 | loi=0</string>
          </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTabWidget" name="excelResultTabs">
+         <property name="currentIndex">
+          <number>0</number>
+         </property>
+         <widget class="QWidget" name="parsedExcelTab">
+          <attribute name="title">
+           <string>Parsed</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="parsedExcelLayout">
+           <item>
+            <widget class="QTableWidget" name="parsedExcelTable">
+             <property name="columnCount">
+              <number>0</number>
+             </property>
+             <property name="rowCount">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="missingExcelTab">
+          <attribute name="title">
+           <string>Missing</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="missingExcelLayout">
+           <item>
+            <widget class="QTableWidget" name="missingExcelTable">
+             <property name="columnCount">
+              <number>0</number>
+             </property>
+             <property name="rowCount">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="excelWarningTab">
+          <attribute name="title">
+           <string>Warnings</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="excelWarningLayout">
+           <item>
+            <widget class="QTableWidget" name="excelWarningTable">
+             <property name="columnCount">
+              <number>0</number>
+             </property>
+             <property name="rowCount">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="excelParseErrorTab">
+          <attribute name="title">
+           <string>Parse errors</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="excelParseErrorLayout">
+           <item>
+            <widget class="QTableWidget" name="excelParseErrorTable">
+             <property name="columnCount">
+              <number>0</number>
+             </property>
+             <property name="rowCount">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
         </widget>
        </item>
       </layout>

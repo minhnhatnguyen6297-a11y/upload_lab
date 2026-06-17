@@ -61,6 +61,33 @@ class QtUIStructureTests(unittest.TestCase):
             self.assertEqual(window.working_dir, working_dir)
             self.assertIsNotNone(app)
 
+    def test_excel_tab_widgets_exist(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from PySide6.QtWidgets import QApplication, QWidget
+
+        from ui_qt.main_window import UploadLabMainWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = UploadLabMainWindow()
+
+        expected_names = [
+            "excelPathEdit",
+            "browseExcelButton",
+            "loadExcelButton",
+            "excelSummaryLabel",
+            "excelResultTabs",
+            "parsedExcelTable",
+            "missingExcelTable",
+            "excelWarningTable",
+            "excelParseErrorTable",
+        ]
+
+        for name in expected_names:
+            with self.subTest(name=name):
+                self.assertIsNotNone(window.ui.findChild(QWidget, name))
+        self.assertIsNotNone(app)
+
     def test_pyside6_import_available_after_install(self):
         if importlib.util.find_spec("PySide6") is None:
             self.skipTest("PySide6 is not installed in this environment yet")

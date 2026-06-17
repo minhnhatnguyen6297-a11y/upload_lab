@@ -16,10 +16,11 @@ def open_with_windows_default(path: str) -> bool:
 
 def set_table_rows(table: QTableWidget, headers: list[str], rows: list[list[str]]) -> None:
     table.clear()
+    table.clearContents()
     table.setColumnCount(len(headers))
     table.setHorizontalHeaderLabels(headers)
     table.setRowCount(len(rows))
     for row_index, row in enumerate(rows):
         for column_index, value in enumerate(row):
             table.setItem(row_index, column_index, QTableWidgetItem(str(value)))
-
+    table.resizeColumnsToContents()
