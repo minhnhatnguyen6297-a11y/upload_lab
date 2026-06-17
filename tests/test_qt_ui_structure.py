@@ -9,6 +9,8 @@ import tempfile
 from unittest.mock import patch
 from pathlib import Path
 
+from openpyxl import Workbook
+
 import bootstrap_ui
 
 
@@ -64,29 +66,74 @@ class QtUIStructureTests(unittest.TestCase):
     def test_excel_tab_widgets_exist(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-        from PySide6.QtWidgets import QApplication, QWidget
+        from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QPushButton, QTabWidget, QTableWidget
 
         from ui_qt.main_window import UploadLabMainWindow
 
         app = QApplication.instance() or QApplication([])
         window = UploadLabMainWindow()
 
-        expected_names = [
-            "excelPathEdit",
-            "browseExcelButton",
-            "loadExcelButton",
-            "excelSummaryLabel",
-            "excelResultTabs",
-            "parsedExcelTable",
-            "missingExcelTable",
-            "excelWarningTable",
-            "excelParseErrorTable",
+        widget_checks = [
+            ("excelPathEdit", QLineEdit),
+            ("browseExcelButton", QPushButton),
+            ("loadExcelButton", QPushButton),
+            ("excelSummaryLabel", QLabel),
+            ("excelResultTabs", QTabWidget),
+            ("parsedExcelTable", QTableWidget),
+            ("missingExcelTable", QTableWidget),
+            ("excelWarningTable", QTableWidget),
+            ("excelParseErrorTable", QTableWidget),
         ]
 
-        for name in expected_names:
+        for name, widget_type in widget_checks:
             with self.subTest(name=name):
-                self.assertIsNotNone(window.ui.findChild(QWidget, name))
+                widget = window.ui.findChild(widget_type, name)
+                self.assertIsNotNone(widget)
+                self.assertIsInstance(widget, widget_type)
+
+        self.assertEqual(window.excelResultTabs.count(), 4)
         self.assertIsNotNone(app)
+
+    def test_failed_excel_load_clears_previous_results(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from PySide6.QtWidgets import QApplication
+
+        from ui_qt.main_window import UploadLabMainWindow
+
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            workbook_path = temp_root / "book.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet["A1"] = "SO CONG CHUNG"
+            sheet["B1"] = "NGAY, THANG, NAM CONG CHUNG"
+            sheet["A2"] = "01/2026"
+            sheet["B2"] = "05/01/2026"
+            workbook.save(workbook_path)
+            workbook.close()
+
+            window = UploadLabMainWindow(working_dir=temp_root)
+
+            window.excelPathEdit.setText(str(workbook_path))
+            window.load_excel()
+            self.assertIn("Excel=1", window.excelSummaryLabel.text())
+            self.assertGreater(window.parsedExcelTable.rowCount(), 0)
+
+            missing_path = temp_root / "missing.xlsx"
+            window.excelPathEdit.setText(str(missing_path))
+            with patch("ui_qt.main_window.QMessageBox.critical") as mocked_critical:
+                window.load_excel()
+
+            mocked_critical.assert_called_once()
+            self.assertEqual(window.contract_book_analysis, None)
+            self.assertEqual(window.excelSummaryLabel.text(), "Chua doc Excel.")
+            self.assertEqual(window.parsedExcelTable.rowCount(), 0)
+            self.assertEqual(window.missingExcelTable.rowCount(), 0)
+            self.assertEqual(window.excelWarningTable.rowCount(), 0)
+            self.assertEqual(window.excelParseErrorTable.rowCount(), 0)
+            self.assertIsNotNone(app)
 
     def test_pyside6_import_available_after_install(self):
         if importlib.util.find_spec("PySide6") is None:

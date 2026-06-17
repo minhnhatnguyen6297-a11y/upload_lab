@@ -11,6 +11,11 @@ from batch_scan import BASE_DIR
 from ui.services.contract_book_audit import analyze_contract_book
 from ui_qt.widgets import set_table_rows
 
+EXCEL_PARSED_HEADERS = ["Dong", "So", "Ngay", "Gia tri goc"]
+EXCEL_MISSING_HEADERS = ["So thieu", "Nam", "STT"]
+EXCEL_WARNING_HEADERS = ["Dong", "Loai", "So goc", "Ngay", "Ly do"]
+EXCEL_PARSE_ERROR_HEADERS = ["Dong", "So goc", "Ngay", "Ly do"]
+
 
 class UploadLabMainWindow(QMainWindow):
     def __init__(self, *, working_dir: Path = BASE_DIR):
@@ -70,6 +75,23 @@ class UploadLabMainWindow(QMainWindow):
         if self.loadExcelButton is not None:
             self.loadExcelButton.clicked.connect(self.load_excel)
 
+    def _reset_excel_results(self, summary_text: str) -> None:
+        self.contract_book_analysis = None
+        if (
+            self.parsedExcelTable is None
+            or self.missingExcelTable is None
+            or self.excelWarningTable is None
+            or self.excelParseErrorTable is None
+            or self.excelSummaryLabel is None
+        ):
+            return
+
+        set_table_rows(self.parsedExcelTable, EXCEL_PARSED_HEADERS, [], resize_columns=False)
+        set_table_rows(self.missingExcelTable, EXCEL_MISSING_HEADERS, [], resize_columns=False)
+        set_table_rows(self.excelWarningTable, EXCEL_WARNING_HEADERS, [], resize_columns=False)
+        set_table_rows(self.excelParseErrorTable, EXCEL_PARSE_ERROR_HEADERS, [], resize_columns=False)
+        self.excelSummaryLabel.setText(summary_text)
+
     def browse_excel(self) -> None:
         if self.ui is None or self.excelPathEdit is None:
             return
@@ -90,12 +112,15 @@ class UploadLabMainWindow(QMainWindow):
 
         path = self.excelPathEdit.text().strip()
         if not path:
+            self._reset_excel_results("Chua doc Excel.")
             QMessageBox.warning(self, "Upload Lab", "Chua chon file Excel.")
             return
 
+        should_resize_columns = self.contract_book_analysis is None
         try:
             self.contract_book_analysis = analyze_contract_book(path)
         except Exception as exc:
+            self._reset_excel_results("Chua doc Excel.")
             QMessageBox.critical(self, "Upload Lab", str(exc))
             return
 
@@ -112,23 +137,27 @@ class UploadLabMainWindow(QMainWindow):
 
         set_table_rows(
             self.parsedExcelTable,
-            ["Dong", "So", "Ngay", "Gia tri goc"],
+            EXCEL_PARSED_HEADERS,
             [[row.row_index, row.contract_no, row.raw_date, row.raw_contract_no] for row in analysis.valid_rows],
+            resize_columns=should_resize_columns,
         )
         set_table_rows(
             self.missingExcelTable,
-            ["So thieu", "Nam", "STT"],
+            EXCEL_MISSING_HEADERS,
             [[item.contract_no, item.year, item.ordinal] for item in analysis.missing_numbers],
+            resize_columns=should_resize_columns,
         )
         set_table_rows(
             self.excelWarningTable,
-            ["Dong", "Loai", "So goc", "Ngay", "Ly do"],
+            EXCEL_WARNING_HEADERS,
             [[warning.row_index, warning.kind.value, warning.raw_contract_no, warning.raw_date, warning.message] for warning in analysis.warning_rows],
+            resize_columns=should_resize_columns,
         )
         set_table_rows(
             self.excelParseErrorTable,
-            ["Dong", "So goc", "Ngay", "Ly do"],
+            EXCEL_PARSE_ERROR_HEADERS,
             [[warning.row_index, warning.raw_contract_no, warning.raw_date, warning.message] for warning in analysis.parse_error_rows],
+            resize_columns=should_resize_columns,
         )
         self.excelSummaryLabel.setText(
             f"Excel={len(analysis.valid_rows)} | thieu={len(analysis.missing_numbers)} | canh bao={len(analysis.warning_rows)} | loi={len(analysis.parse_error_rows)}"
