@@ -164,10 +164,51 @@
           <number>0</number>
          </property>
          <widget class="QWidget" name="validUploadTab">
-          <attribute name="title">
+         <attribute name="title">
            <string>Valid</string>
           </attribute>
           <layout class="QVBoxLayout" name="validUploadLayout">
+           <item>
+            <layout class="QHBoxLayout" name="validUploadToolbarLayout">
+             <item>
+              <widget class="QPushButton" name="selectAllValidButton">
+               <property name="text">
+                <string>Chon tat ca hop le</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="clearValidSelectionButton">
+               <property name="text">
+                <string>Bo chon tat ca</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="uploadSelectedButton">
+               <property name="enabled">
+                <bool>false</bool>
+               </property>
+               <property name="text">
+                <string>Upload file da chon</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer name="validUploadToolbarSpacer">
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
            <item>
             <widget class="QTableWidget" name="validUploadTable">
              <property name="columnCount">

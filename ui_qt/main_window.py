@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
-from PySide6.QtCore import QFile, QThread
+from PySide6.QtCore import QFile, QThread, Qt
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QTabWidget,
@@ -22,7 +23,8 @@ from batch_scan import BASE_DIR
 from playwright_uploader import load_upload_queue
 from ui.services.contract_book_audit import analyze_contract_book
 from ui.services.scan_classification_service import classify_scan_records
-from ui_qt.widgets import open_with_windows_default, set_table_rows
+from ui.services.upload_selection_service import UploadSelection
+from ui_qt.widgets import checked_record_ids, open_with_windows_default, set_checkable_upload_rows, set_table_rows
 from ui_qt.workers import FolderScanWorker
 
 EXCEL_PARSED_HEADERS = ["Dong", "So", "Ngay", "Gia tri goc"]
@@ -62,11 +64,16 @@ class UploadLabMainWindow(QMainWindow):
         self.scanSummaryLabel: QLabel | None = None
         self.scanResultTabs: QTabWidget | None = None
         self.validUploadTable: QTableWidget | None = None
+        self.selectAllValidButton: QPushButton | None = None
+        self.clearValidSelectionButton: QPushButton | None = None
+        self.uploadSelectedButton: QPushButton | None = None
         self.notInExcelTable: QTableWidget | None = None
         self.missingFieldsTable: QTableWidget | None = None
         self.webDuplicateTable: QTableWidget | None = None
         self.localDuplicateTable: QTableWidget | None = None
         self.excelMissingInFolderTable: QTableWidget | None = None
+        self.logText: QPlainTextEdit | None = None
+        self.validUploadSelection = UploadSelection()
         self.setWindowTitle("Upload Lab")
         self.resize(1280, 860)
         self._load_ui()
@@ -122,16 +129,26 @@ class UploadLabMainWindow(QMainWindow):
         self.scanSummaryLabel = cast(QLabel, self.ui.findChild(QLabel, "scanSummaryLabel"))
         self.scanResultTabs = cast(QTabWidget, self.ui.findChild(QTabWidget, "scanResultTabs"))
         self.validUploadTable = cast(QTableWidget, self.ui.findChild(QTableWidget, "validUploadTable"))
+        self.selectAllValidButton = cast(QPushButton, self.ui.findChild(QPushButton, "selectAllValidButton"))
+        self.clearValidSelectionButton = cast(QPushButton, self.ui.findChild(QPushButton, "clearValidSelectionButton"))
+        self.uploadSelectedButton = cast(QPushButton, self.ui.findChild(QPushButton, "uploadSelectedButton"))
         self.notInExcelTable = cast(QTableWidget, self.ui.findChild(QTableWidget, "notInExcelTable"))
         self.missingFieldsTable = cast(QTableWidget, self.ui.findChild(QTableWidget, "missingFieldsTable"))
         self.webDuplicateTable = cast(QTableWidget, self.ui.findChild(QTableWidget, "webDuplicateTable"))
         self.localDuplicateTable = cast(QTableWidget, self.ui.findChild(QTableWidget, "localDuplicateTable"))
         self.excelMissingInFolderTable = cast(QTableWidget, self.ui.findChild(QTableWidget, "excelMissingInFolderTable"))
+        self.logText = cast(QPlainTextEdit, self.ui.findChild(QPlainTextEdit, "logText"))
 
         if self.browseFolderButton is not None:
             self.browseFolderButton.clicked.connect(self.browse_folder)
         if self.scanFolderButton is not None:
             self.scanFolderButton.clicked.connect(self.start_folder_scan)
+        if self.selectAllValidButton is not None:
+            self.selectAllValidButton.clicked.connect(self.select_all_valid_upload_rows)
+        if self.clearValidSelectionButton is not None:
+            self.clearValidSelectionButton.clicked.connect(self.clear_valid_upload_selection)
+        if self.uploadSelectedButton is not None:
+            self.uploadSelectedButton.clicked.connect(self.handle_upload_selected)
 
         for table in (
             self.validUploadTable,
@@ -142,6 +159,8 @@ class UploadLabMainWindow(QMainWindow):
         ):
             if table is not None:
                 table.cellDoubleClicked.connect(lambda row, _column, table=table: self._open_scan_table_source_file(table, row))
+        if self.validUploadTable is not None:
+            self.validUploadTable.itemChanged.connect(self._handle_valid_upload_item_changed)
 
     def _reset_excel_results(self, summary_text: str) -> None:
         self.contract_book_analysis = None
@@ -174,14 +193,16 @@ class UploadLabMainWindow(QMainWindow):
             return
 
         self.current_manifest_path = None
+        self.validUploadSelection = UploadSelection()
         self.scanProgressBar.setValue(0)
         self.scanSummaryLabel.setText(summary_text)
-        set_table_rows(self.validUploadTable, SCAN_VALID_HEADERS, [], resize_columns=False)
+        set_checkable_upload_rows(self.validUploadTable, [])
         set_table_rows(self.notInExcelTable, SCAN_NOT_IN_EXCEL_HEADERS, [], resize_columns=False)
         set_table_rows(self.missingFieldsTable, SCAN_MISSING_FIELDS_HEADERS, [], resize_columns=False)
         set_table_rows(self.webDuplicateTable, SCAN_WEB_DUPLICATE_HEADERS, [], resize_columns=False)
         set_table_rows(self.localDuplicateTable, SCAN_LOCAL_DUPLICATE_HEADERS, [], resize_columns=False)
         set_table_rows(self.excelMissingInFolderTable, SCAN_EXCEL_MISSING_HEADERS, [], resize_columns=False)
+        self._sync_valid_upload_controls()
 
     def browse_excel(self) -> None:
         if self.ui is None or self.excelPathEdit is None:
@@ -361,15 +382,13 @@ class UploadLabMainWindow(QMainWindow):
         ):
             return
 
-        set_table_rows(
-            self.validUploadTable,
-            SCAN_VALID_HEADERS,
-            [
-                ["x" if row.selected else "", row.record_id, row.contract_no, row.status, row.source_file]
-                for row in classification.valid_upload_rows
-            ],
-            resize_columns=False,
-        )
+        self.validUploadSelection = UploadSelection.from_valid_rows(classification.valid_upload_rows)
+        if self.validUploadTable is not None:
+            self.validUploadTable.blockSignals(True)
+            try:
+                set_checkable_upload_rows(self.validUploadTable, classification.valid_upload_rows)
+            finally:
+                self.validUploadTable.blockSignals(False)
         set_table_rows(
             self.notInExcelTable,
             SCAN_NOT_IN_EXCEL_HEADERS,
@@ -410,6 +429,64 @@ class UploadLabMainWindow(QMainWindow):
                 excel_missing=len(classification.excel_missing_in_folder),
             )
         )
+        self._sync_valid_upload_controls()
+
+    def _sync_valid_upload_controls(self) -> None:
+        selected_count = len(self.validUploadSelection.selected_record_ids())
+        has_valid_rows = bool(self.validUploadSelection.valid_ids)
+        if self.selectAllValidButton is not None:
+            self.selectAllValidButton.setEnabled(has_valid_rows)
+        if self.clearValidSelectionButton is not None:
+            self.clearValidSelectionButton.setEnabled(has_valid_rows)
+        if self.uploadSelectedButton is not None:
+            self.uploadSelectedButton.setEnabled(False)
+            self.uploadSelectedButton.setText(f"Upload file da chon ({selected_count})")
+
+    def _apply_selection_to_valid_upload_table(self) -> None:
+        if self.validUploadTable is None:
+            return
+        self.validUploadTable.blockSignals(True)
+        try:
+            selected_ids = set(self.validUploadSelection.selected_record_ids())
+            for row_index in range(self.validUploadTable.rowCount()):
+                item = self.validUploadTable.item(row_index, 0)
+                if item is None:
+                    continue
+                record_id = item.data(Qt.ItemDataRole.UserRole)
+                if record_id is None:
+                    continue
+                item.setCheckState(Qt.Checked if int(record_id) in selected_ids else Qt.Unchecked)
+        finally:
+            self.validUploadTable.blockSignals(False)
+        self._sync_valid_upload_controls()
+
+    def _handle_valid_upload_item_changed(self, item) -> None:
+        if self.validUploadTable is None or item.column() != 0:
+            return
+        record_id = item.data(Qt.ItemDataRole.UserRole)
+        if record_id is None:
+            return
+        self.validUploadSelection.set_selected(record_id, item.checkState() == Qt.Checked)
+        self._sync_valid_upload_controls()
+
+    def select_all_valid_upload_rows(self) -> None:
+        self.validUploadSelection.select_all_valid()
+        self._apply_selection_to_valid_upload_table()
+
+    def clear_valid_upload_selection(self) -> None:
+        self.validUploadSelection.clear()
+        self._apply_selection_to_valid_upload_table()
+
+    def handle_upload_selected(self) -> None:
+        selected_ids = checked_record_ids(self.validUploadTable) if self.validUploadTable is not None else []
+        self._log_message(
+            "Upload selected requires selected-record upload API. Selected IDs: "
+            + (", ".join(str(record_id) for record_id in selected_ids) if selected_ids else "(none)")
+        )
+
+    def _log_message(self, message: str) -> None:
+        if self.logText is not None:
+            self.logText.appendPlainText(message)
 
     def _open_scan_table_source_file(self, table: QTableWidget, row_index: int) -> None:
         if row_index < 0 or table.columnCount() < 1:

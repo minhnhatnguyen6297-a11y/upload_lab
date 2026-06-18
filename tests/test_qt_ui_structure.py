@@ -91,6 +91,9 @@ class QtUIStructureTests(unittest.TestCase):
             ("scanSummaryLabel", QLabel),
             ("scanResultTabs", QTabWidget),
             ("validUploadTable", QTableWidget),
+            ("selectAllValidButton", QPushButton),
+            ("clearValidSelectionButton", QPushButton),
+            ("uploadSelectedButton", QPushButton),
             ("notInExcelTable", QTableWidget),
             ("missingFieldsTable", QTableWidget),
             ("webDuplicateTable", QTableWidget),
@@ -106,6 +109,83 @@ class QtUIStructureTests(unittest.TestCase):
 
         self.assertEqual(window.excelResultTabs.count(), 4)
         self.assertEqual(window.scanResultTabs.count(), 6)
+        self.assertIsNotNone(app)
+
+    def test_valid_upload_selection_controls_follow_checkbox_state(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QApplication
+
+        from ui.services.scan_classification_service import ClassifiedScanRow, ScanClassification
+        from ui_qt.main_window import UploadLabMainWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = UploadLabMainWindow()
+        classification = ScanClassification(
+            valid_upload_rows=[
+                ClassifiedScanRow(10, "10/2026/CCGD", "10/2026", "extracted", "a.docx", [], True, "Hop le de upload."),
+                ClassifiedScanRow(11, "11/2026/CCGD", "11/2026", "extracted", "b.docx", [], True, "Hop le de upload."),
+            ],
+            not_in_excel_rows=[],
+            missing_field_rows=[],
+            web_duplicate_rows=[],
+            duplicate_local_rows=[],
+            excel_missing_in_folder=[],
+        )
+
+        window.render_scan_classification(classification)
+
+        self.assertEqual(window.validUploadTable.rowCount(), 2)
+        self.assertEqual(window.validUploadSelection.selected_record_ids(), [10, 11])
+        self.assertTrue(window.selectAllValidButton.isEnabled())
+        self.assertTrue(window.clearValidSelectionButton.isEnabled())
+        self.assertFalse(window.uploadSelectedButton.isEnabled())
+        self.assertEqual(window.uploadSelectedButton.text(), "Upload file da chon (2)")
+
+        first_item = window.validUploadTable.item(0, 0)
+        first_item.setCheckState(Qt.Unchecked)
+
+        self.assertEqual(window.validUploadSelection.selected_record_ids(), [11])
+        self.assertEqual(window.uploadSelectedButton.text(), "Upload file da chon (1)")
+
+        window.clear_valid_upload_selection()
+        self.assertEqual(window.validUploadSelection.selected_record_ids(), [])
+        self.assertEqual(window.validUploadTable.item(1, 0).checkState(), Qt.Unchecked)
+        self.assertEqual(window.uploadSelectedButton.text(), "Upload file da chon (0)")
+
+        window.select_all_valid_upload_rows()
+        self.assertEqual(window.validUploadSelection.selected_record_ids(), [10, 11])
+        self.assertEqual(window.validUploadTable.item(0, 0).checkState(), Qt.Checked)
+        self.assertEqual(window.uploadSelectedButton.text(), "Upload file da chon (2)")
+        self.assertIsNotNone(app)
+
+    def test_upload_selected_logs_placeholder_message(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from PySide6.QtWidgets import QApplication
+
+        from ui.services.scan_classification_service import ClassifiedScanRow, ScanClassification
+        from ui_qt.main_window import UploadLabMainWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = UploadLabMainWindow()
+        classification = ScanClassification(
+            valid_upload_rows=[
+                ClassifiedScanRow(21, "21/2026/CCGD", "21/2026", "extracted", "c.docx", [], True, "Hop le de upload."),
+            ],
+            not_in_excel_rows=[],
+            missing_field_rows=[],
+            web_duplicate_rows=[],
+            duplicate_local_rows=[],
+            excel_missing_in_folder=[],
+        )
+        window.render_scan_classification(classification)
+
+        window.handle_upload_selected()
+
+        self.assertIn("Upload selected requires selected-record upload API.", window.logText.toPlainText())
+        self.assertIn("21", window.logText.toPlainText())
         self.assertIsNotNone(app)
 
     def test_failed_excel_load_clears_previous_results(self):
