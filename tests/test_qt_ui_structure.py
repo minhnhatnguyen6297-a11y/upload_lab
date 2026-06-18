@@ -26,6 +26,7 @@ class QtUIStructureTests(unittest.TestCase):
         self.assertTrue(Path("ui_qt/app.py").exists())
         self.assertTrue(Path("ui_qt/main_window.py").exists())
         self.assertTrue(Path("ui_qt/widgets.py").exists())
+        self.assertTrue(Path("ui_qt/workers.py").exists())
         self.assertTrue(Path("ui_qt/forms/main_window.ui").exists())
 
     def test_qt_entrypoint_imports(self):
@@ -66,7 +67,7 @@ class QtUIStructureTests(unittest.TestCase):
     def test_excel_tab_widgets_exist(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-        from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QPushButton, QTabWidget, QTableWidget
+        from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QPushButton, QProgressBar, QTabWidget, QTableWidget
 
         from ui_qt.main_window import UploadLabMainWindow
 
@@ -83,6 +84,18 @@ class QtUIStructureTests(unittest.TestCase):
             ("missingExcelTable", QTableWidget),
             ("excelWarningTable", QTableWidget),
             ("excelParseErrorTable", QTableWidget),
+            ("folderPathEdit", QLineEdit),
+            ("browseFolderButton", QPushButton),
+            ("scanFolderButton", QPushButton),
+            ("scanProgressBar", QProgressBar),
+            ("scanSummaryLabel", QLabel),
+            ("scanResultTabs", QTabWidget),
+            ("validUploadTable", QTableWidget),
+            ("notInExcelTable", QTableWidget),
+            ("missingFieldsTable", QTableWidget),
+            ("webDuplicateTable", QTableWidget),
+            ("localDuplicateTable", QTableWidget),
+            ("excelMissingInFolderTable", QTableWidget),
         ]
 
         for name, widget_type in widget_checks:
@@ -92,6 +105,7 @@ class QtUIStructureTests(unittest.TestCase):
                 self.assertIsInstance(widget, widget_type)
 
         self.assertEqual(window.excelResultTabs.count(), 4)
+        self.assertEqual(window.scanResultTabs.count(), 6)
         self.assertIsNotNone(app)
 
     def test_failed_excel_load_clears_previous_results(self):

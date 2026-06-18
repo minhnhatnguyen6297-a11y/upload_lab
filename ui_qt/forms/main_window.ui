@@ -124,10 +124,147 @@
       </attribute>
       <layout class="QVBoxLayout" name="folderLayout">
        <item>
-        <widget class="QLabel" name="folderPlaceholder">
-         <property name="text">
-          <string>Scan one selected folder, preselect valid files, and upload selected rows.</string>
+        <layout class="QHBoxLayout" name="folderPathLayout">
+         <item>
+          <widget class="QLineEdit" name="folderPathEdit"/>
+         </item>
+         <item>
+          <widget class="QPushButton" name="browseFolderButton">
+           <property name="text">
+            <string>Browse</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="scanFolderButton">
+           <property name="text">
+            <string>Scan</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QProgressBar" name="scanProgressBar">
+         <property name="value">
+          <number>0</number>
          </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="scanSummaryLabel">
+         <property name="text">
+          <string>Chua scan folder.</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTabWidget" name="scanResultTabs">
+         <property name="currentIndex">
+          <number>0</number>
+         </property>
+         <widget class="QWidget" name="validUploadTab">
+          <attribute name="title">
+           <string>Valid</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="validUploadLayout">
+           <item>
+            <widget class="QTableWidget" name="validUploadTable">
+             <property name="columnCount">
+              <number>0</number>
+             </property>
+             <property name="rowCount">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="notInExcelTab">
+          <attribute name="title">
+           <string>Not in Excel</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="notInExcelLayout">
+           <item>
+            <widget class="QTableWidget" name="notInExcelTable">
+             <property name="columnCount">
+              <number>0</number>
+             </property>
+             <property name="rowCount">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="missingFieldsTab">
+          <attribute name="title">
+           <string>Missing fields</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="missingFieldsLayout">
+           <item>
+            <widget class="QTableWidget" name="missingFieldsTable">
+             <property name="columnCount">
+              <number>0</number>
+             </property>
+             <property name="rowCount">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="webDuplicateTab">
+          <attribute name="title">
+           <string>Web duplicates</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="webDuplicateLayout">
+           <item>
+            <widget class="QTableWidget" name="webDuplicateTable">
+             <property name="columnCount">
+              <number>0</number>
+             </property>
+             <property name="rowCount">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="localDuplicateTab">
+          <attribute name="title">
+           <string>Local duplicates</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="localDuplicateLayout">
+           <item>
+            <widget class="QTableWidget" name="localDuplicateTable">
+             <property name="columnCount">
+              <number>0</number>
+             </property>
+             <property name="rowCount">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="excelMissingInFolderTab">
+          <attribute name="title">
+           <string>Excel missing</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="excelMissingInFolderLayout">
+           <item>
+            <widget class="QTableWidget" name="excelMissingInFolderTable">
+             <property name="columnCount">
+              <number>0</number>
+             </property>
+             <property name="rowCount">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
         </widget>
        </item>
       </layout>
