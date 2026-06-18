@@ -335,6 +335,7 @@ class UploadLabMainWindow(QMainWindow):
             classification = classify_scan_records(
                 records,
                 self.contract_book_analysis,
+                # Qt does not yet load a separate web-list dataset; wire web duplicates later.
                 existing_web_contract_nos=set(),
             )
         except Exception as exc:
@@ -420,3 +421,9 @@ class UploadLabMainWindow(QMainWindow):
         path = file_item.text().strip()
         if path:
             open_with_windows_default(path)
+
+    def closeEvent(self, event) -> None:
+        if self.scanThread is not None and self.scanThread.isRunning():
+            self.scanThread.quit()
+            self.scanThread.wait(3000)
+        super().closeEvent(event)

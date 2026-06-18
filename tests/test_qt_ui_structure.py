@@ -6,7 +6,7 @@ import os
 import sys
 import unittest
 import tempfile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -148,6 +148,28 @@ class QtUIStructureTests(unittest.TestCase):
             self.assertEqual(window.excelWarningTable.rowCount(), 0)
             self.assertEqual(window.excelParseErrorTable.rowCount(), 0)
             self.assertIsNotNone(app)
+
+    def test_close_event_quits_running_scan_thread(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from PySide6.QtWidgets import QApplication
+
+        from ui_qt.main_window import UploadLabMainWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = UploadLabMainWindow()
+        fake_thread = MagicMock()
+        fake_thread.isRunning.return_value = True
+        window.scanThread = fake_thread
+
+        event = MagicMock()
+        with patch("ui_qt.main_window.QMainWindow.closeEvent") as mocked_super_close:
+            window.closeEvent(event)
+
+        fake_thread.quit.assert_called_once_with()
+        fake_thread.wait.assert_called_once_with(3000)
+        mocked_super_close.assert_called_once_with(event)
+        self.assertIsNotNone(app)
 
     def test_pyside6_import_available_after_install(self):
         if importlib.util.find_spec("PySide6") is None:
