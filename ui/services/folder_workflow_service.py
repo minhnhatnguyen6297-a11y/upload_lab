@@ -84,5 +84,18 @@ def load_queue_state(
     )
 
 
+def load_selected_queue_records(
+    manifest_path: Path,
+    selected_record_ids: set[int],
+    *,
+    working_dir: Path = BASE_DIR,
+):
+    return load_upload_queue(
+        manifest_path,
+        working_dir=working_dir,
+        selected_record_ids=selected_record_ids,
+    )
+
+
 def finalize_selected_records(record_ids: list[int], *, working_dir: Path = BASE_DIR) -> int:
     return finalize_uploaded_records(record_ids, working_dir=working_dir)

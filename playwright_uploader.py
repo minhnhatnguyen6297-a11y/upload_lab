@@ -674,6 +674,7 @@ def load_upload_queue(
     *,
     working_dir: Path = BASE_DIR,
     limit: Optional[int] = None,
+    selected_record_ids: set[int] | None = None,
     requester_lookup: Optional[dict[str, str]] = None,
 ) -> tuple[dict, list[UploadRecord], int]:
     manifest = load_manifest(manifest_path)
@@ -717,6 +718,9 @@ def load_upload_queue(
         )
 
     total_pending = len(records)
+    if selected_record_ids is not None:
+        selected = {int(record_id) for record_id in selected_record_ids}
+        records = [record for record in records if int(record.record_id) in selected]
     if limit is not None:
         records = records[:limit]
     return manifest, records, total_pending

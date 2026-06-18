@@ -181,6 +181,25 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
         self.assertEqual(total_pending, 2)
         self.assertEqual([record.contract_no for record in records], ["111/2026/CCGD", "222/2026/CCGD"])
 
+    def test_load_upload_queue_can_filter_selected_record_ids(self):
+        run_id = "selected-run"
+        output1 = make_output_json(self.workdir / "output" / "selected1.json", contract_no="111/2026/CCGD", file_goc=str(self.root / "a.docx"))
+        output2 = make_output_json(self.workdir / "output" / "selected2.json", contract_no="222/2026/CCGD", file_goc=str(self.root / "b.docx"))
+        first_id = self._seed_record(file_key="sel-1", run_id=run_id, contract_no="111/2026/CCGD", status="extracted", output_json_path=output1)
+        second_id = self._seed_record(file_key="sel-2", run_id=run_id, contract_no="222/2026/CCGD", status="extracted", output_json_path=output2)
+        manifest_path = self.workdir / "runs" / "selected.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps({"run_id": run_id}), encoding="utf-8")
+
+        _manifest, records, _total = load_upload_queue(
+            manifest_path,
+            working_dir=self.workdir,
+            selected_record_ids={second_id},
+        )
+
+        self.assertEqual([record.record_id for record in records], [second_id])
+        self.assertNotEqual(first_id, second_id)
+
     def test_finalize_uploaded_records_marks_selected_rows(self):
         run_id = "run123"
         file_goc = str(self.root / "goc2.docx")
