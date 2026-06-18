@@ -39,6 +39,8 @@ Chay:
 
 Doc report moi nhat trong `regex_review_samples/reports/` de kiem cac truong `nguoi_yeu_cau`, `duong_su`, `tai_san`, `missing_fields`. File mau that va report runtime khong duoc track git.
 
+Rule trich xuat duoc ghi co he thong tai `docs/regex-rules.md`; khi them mau hop dong moi, cap nhat file nay cung voi test/review sample.
+
 ## Output va log
 
 | Path | Noi dung |

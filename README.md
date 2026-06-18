@@ -41,4 +41,6 @@ Dat file `.doc`/`.docx` that vao `regex_review_samples/input/`, roi chay:
 
 Report JSON/CSV duoc ghi vao `regex_review_samples/reports/`. File mau that va report runtime duoc ignore boi git.
 
+Rule trich xuat duoc ghi co he thong tai `docs/regex-rules.md`; khi them mau hop dong moi, cap nhat file nay cung voi test/review sample.
+
 Repo nay da tach rieng, khong con phu thuoc vao `notary_v2`.
