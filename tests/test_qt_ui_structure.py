@@ -163,11 +163,39 @@ class QtUIStructureTests(unittest.TestCase):
         window.scanThread = fake_thread
 
         event = MagicMock()
-        with patch("ui_qt.main_window.QMainWindow.closeEvent") as mocked_super_close:
+        with patch("ui_qt.main_window.QMessageBox.information") as mocked_info, patch(
+            "ui_qt.main_window.QMainWindow.closeEvent"
+        ) as mocked_super_close:
             window.closeEvent(event)
 
-        fake_thread.quit.assert_called_once_with()
-        fake_thread.wait.assert_called_once_with(3000)
+        mocked_info.assert_called_once_with(
+            window,
+            "Upload Lab",
+            "Dang scan folder. Hay doi scan xong truoc khi dong app.",
+        )
+        event.ignore.assert_called_once_with()
+        mocked_super_close.assert_not_called()
+        self.assertIsNotNone(app)
+
+    def test_close_event_allows_close_when_no_scan_running(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from PySide6.QtWidgets import QApplication
+
+        from ui_qt.main_window import UploadLabMainWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = UploadLabMainWindow()
+        window.scanThread = None
+
+        event = MagicMock()
+        with patch("ui_qt.main_window.QMessageBox.information") as mocked_info, patch(
+            "ui_qt.main_window.QMainWindow.closeEvent"
+        ) as mocked_super_close:
+            window.closeEvent(event)
+
+        mocked_info.assert_not_called()
+        event.ignore.assert_not_called()
         mocked_super_close.assert_called_once_with(event)
         self.assertIsNotNone(app)
 

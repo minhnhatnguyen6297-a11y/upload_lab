@@ -424,6 +424,7 @@ class UploadLabMainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         if self.scanThread is not None and self.scanThread.isRunning():
-            self.scanThread.quit()
-            self.scanThread.wait(3000)
+            QMessageBox.information(self, "Upload Lab", "Dang scan folder. Hay doi scan xong truoc khi dong app.")
+            event.ignore()
+            return
         super().closeEvent(event)
