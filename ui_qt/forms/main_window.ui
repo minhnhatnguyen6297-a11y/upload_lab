@@ -10,9 +10,33 @@
      </property>
      <widget class="QWidget" name="excelTab">
       <attribute name="title">
-       <string>Excel &amp; Missing Numbers</string>
+       <string>Excel Audit</string>
       </attribute>
       <layout class="QVBoxLayout" name="excelLayout">
+       <item>
+        <layout class="QHBoxLayout" name="excelDateLayout">
+         <item>
+          <widget class="QLabel" name="fromDateLabel">
+           <property name="text">
+            <string>Tu ngay</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="fromDateEdit"/>
+         </item>
+         <item>
+          <widget class="QLabel" name="toDateLabel">
+           <property name="text">
+            <string>Den ngay</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="toDateEdit"/>
+         </item>
+        </layout>
+       </item>
        <item>
         <layout class="QHBoxLayout" name="excelPathLayout">
          <item>
@@ -37,78 +61,85 @@
        <item>
         <widget class="QLabel" name="excelSummaryLabel">
          <property name="text">
-          <string>Excel=0 | thieu=0 | canh bao=0 | loi=0</string>
+          <string>Excel=0 | hop_le=0 | thieu=0 | loi=0 | trung=0</string>
          </property>
         </widget>
        </item>
        <item>
-        <widget class="QTabWidget" name="excelResultTabs">
-         <property name="currentIndex">
-          <number>0</number>
+        <widget class="QSplitter" name="excelSplitter">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
          </property>
-         <widget class="QWidget" name="parsedExcelTab">
-          <attribute name="title">
-           <string>Parsed</string>
-          </attribute>
-          <layout class="QVBoxLayout" name="parsedExcelLayout">
+         <widget class="QWidget" name="excelDisplayPanel">
+          <layout class="QVBoxLayout" name="excelDisplayLayout">
            <item>
-            <widget class="QTableWidget" name="parsedExcelTable">
+            <widget class="QLabel" name="excelDisplayLabel">
+             <property name="text">
+              <string>Danh sach Excel</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QTableWidget" name="excelDisplayTable">
              <property name="columnCount">
               <number>0</number>
              </property>
              <property name="rowCount">
               <number>0</number>
+             </property>
+             <property name="verticalScrollBarPolicy">
+              <enum>Qt::ScrollBarAlwaysOn</enum>
              </property>
             </widget>
            </item>
           </layout>
          </widget>
-         <widget class="QWidget" name="missingExcelTab">
-          <attribute name="title">
-           <string>Missing</string>
-          </attribute>
-          <layout class="QVBoxLayout" name="missingExcelLayout">
+         <widget class="QWidget" name="excelMissingPanel">
+          <layout class="QVBoxLayout" name="excelMissingLayout">
            <item>
-            <widget class="QTableWidget" name="missingExcelTable">
+            <widget class="QLabel" name="excelMissingLabel">
+             <property name="text">
+              <string>So con thieu</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QTableWidget" name="excelMissingTable">
              <property name="columnCount">
               <number>0</number>
              </property>
              <property name="rowCount">
               <number>0</number>
+             </property>
+             <property name="verticalScrollBarPolicy">
+              <enum>Qt::ScrollBarAlwaysOn</enum>
              </property>
             </widget>
            </item>
           </layout>
          </widget>
-         <widget class="QWidget" name="excelWarningTab">
-          <attribute name="title">
-           <string>Warnings</string>
-          </attribute>
-          <layout class="QVBoxLayout" name="excelWarningLayout">
+         <widget class="QWidget" name="excelIssuePanel">
+          <layout class="QVBoxLayout" name="excelIssueLayout">
            <item>
-            <widget class="QTableWidget" name="excelWarningTable">
-             <property name="columnCount">
-              <number>0</number>
-             </property>
-             <property name="rowCount">
-              <number>0</number>
+            <widget class="QLabel" name="excelIssueLabel">
+             <property name="text">
+              <string>So loi, trung</string>
              </property>
             </widget>
            </item>
-          </layout>
-         </widget>
-         <widget class="QWidget" name="excelParseErrorTab">
-          <attribute name="title">
-           <string>Parse errors</string>
-          </attribute>
-          <layout class="QVBoxLayout" name="excelParseErrorLayout">
            <item>
-            <widget class="QTableWidget" name="excelParseErrorTable">
+            <widget class="QTableWidget" name="excelIssueTable">
              <property name="columnCount">
               <number>0</number>
              </property>
              <property name="rowCount">
               <number>0</number>
+             </property>
+             <property name="verticalScrollBarPolicy">
+              <enum>Qt::ScrollBarAlwaysOn</enum>
+             </property>
+             <property name="horizontalScrollBarPolicy">
+              <enum>Qt::ScrollBarAlwaysOn</enum>
              </property>
             </widget>
            </item>
@@ -164,7 +195,7 @@
           <number>0</number>
          </property>
          <widget class="QWidget" name="validUploadTab">
-         <attribute name="title">
+          <attribute name="title">
            <string>Valid</string>
           </attribute>
           <layout class="QVBoxLayout" name="validUploadLayout">

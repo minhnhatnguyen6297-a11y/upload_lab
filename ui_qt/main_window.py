@@ -20,18 +20,22 @@ from PySide6.QtWidgets import (
 )
 
 from batch_scan import BASE_DIR
-from playwright_uploader import load_upload_queue
+from playwright_uploader import default_export_from_date, default_export_to_date, load_upload_queue
 from ui.services.contract_book_audit import analyze_contract_book
 from ui.services.scan_classification_service import classify_scan_records
 from ui.services.upload_selection_service import UploadSelection
-from ui_qt.widgets import checked_record_ids, open_with_windows_default, set_checkable_upload_rows, set_table_rows
+from ui_qt.widgets import (
+    checked_record_ids,
+    configure_audit_table_scrollbars,
+    open_with_windows_default,
+    set_checkable_upload_rows,
+    set_table_rows,
+)
 from ui_qt.workers import FolderScanWorker
 
-EXCEL_PARSED_HEADERS = ["Dong", "So", "Ngay", "Gia tri goc"]
+EXCEL_DISPLAY_HEADERS = ["Ngay", "So cong chung", "Dong Excel"]
 EXCEL_MISSING_HEADERS = ["So thieu", "Nam", "STT"]
-EXCEL_WARNING_HEADERS = ["Dong", "Loai", "So goc", "Ngay", "Ly do"]
-EXCEL_PARSE_ERROR_HEADERS = ["Dong", "So goc", "Ngay", "Ly do"]
-SCAN_VALID_HEADERS = ["Chon", "ID", "So", "Trang thai", "File"]
+EXCEL_ISSUE_HEADERS = ["Loai loi", "Dong", "Ngay", "So goc", "So chuan", "Ly do"]
 SCAN_NOT_IN_EXCEL_HEADERS = ["ID", "So", "Ly do", "File"]
 SCAN_MISSING_FIELDS_HEADERS = ["ID", "So", "Thieu", "File"]
 SCAN_WEB_DUPLICATE_HEADERS = ["ID", "So", "Ly do", "File"]
@@ -48,15 +52,15 @@ class UploadLabMainWindow(QMainWindow):
         self.scanThread: QThread | None = None
         self.scanWorker: FolderScanWorker | None = None
         self.ui: QWidget | None = None
+        self.fromDateEdit: QLineEdit | None = None
+        self.toDateEdit: QLineEdit | None = None
         self.excelPathEdit: QLineEdit | None = None
         self.browseExcelButton: QPushButton | None = None
         self.loadExcelButton: QPushButton | None = None
         self.excelSummaryLabel: QLabel | None = None
-        self.excelResultTabs: QTabWidget | None = None
-        self.parsedExcelTable: QTableWidget | None = None
-        self.missingExcelTable: QTableWidget | None = None
-        self.excelWarningTable: QTableWidget | None = None
-        self.excelParseErrorTable: QTableWidget | None = None
+        self.excelDisplayTable: QTableWidget | None = None
+        self.excelMissingTable: QTableWidget | None = None
+        self.excelIssueTable: QTableWidget | None = None
         self.folderPathEdit: QLineEdit | None = None
         self.browseFolderButton: QPushButton | None = None
         self.scanFolderButton: QPushButton | None = None
@@ -103,15 +107,28 @@ class UploadLabMainWindow(QMainWindow):
         if self.ui is None:
             return
 
+        self.fromDateEdit = cast(QLineEdit, self.ui.findChild(QLineEdit, "fromDateEdit"))
+        self.toDateEdit = cast(QLineEdit, self.ui.findChild(QLineEdit, "toDateEdit"))
         self.excelPathEdit = cast(QLineEdit, self.ui.findChild(QLineEdit, "excelPathEdit"))
         self.browseExcelButton = cast(QPushButton, self.ui.findChild(QPushButton, "browseExcelButton"))
         self.loadExcelButton = cast(QPushButton, self.ui.findChild(QPushButton, "loadExcelButton"))
         self.excelSummaryLabel = cast(QLabel, self.ui.findChild(QLabel, "excelSummaryLabel"))
-        self.excelResultTabs = cast(QTabWidget, self.ui.findChild(QTabWidget, "excelResultTabs"))
-        self.parsedExcelTable = cast(QTableWidget, self.ui.findChild(QTableWidget, "parsedExcelTable"))
-        self.missingExcelTable = cast(QTableWidget, self.ui.findChild(QTableWidget, "missingExcelTable"))
-        self.excelWarningTable = cast(QTableWidget, self.ui.findChild(QTableWidget, "excelWarningTable"))
-        self.excelParseErrorTable = cast(QTableWidget, self.ui.findChild(QTableWidget, "excelParseErrorTable"))
+        self.excelDisplayTable = cast(QTableWidget, self.ui.findChild(QTableWidget, "excelDisplayTable"))
+        self.excelMissingTable = cast(QTableWidget, self.ui.findChild(QTableWidget, "excelMissingTable"))
+        self.excelIssueTable = cast(QTableWidget, self.ui.findChild(QTableWidget, "excelIssueTable"))
+
+        if self.fromDateEdit is not None and not self.fromDateEdit.text().strip():
+            self.fromDateEdit.setText(default_export_from_date())
+        if self.toDateEdit is not None and not self.toDateEdit.text().strip():
+            self.toDateEdit.setText(default_export_to_date())
+
+        for table, horizontal in (
+            (self.excelDisplayTable, False),
+            (self.excelMissingTable, False),
+            (self.excelIssueTable, True),
+        ):
+            if table is not None:
+                configure_audit_table_scrollbars(table, horizontal=horizontal)
 
         if self.browseExcelButton is not None:
             self.browseExcelButton.clicked.connect(self.browse_excel)
@@ -165,18 +182,16 @@ class UploadLabMainWindow(QMainWindow):
     def _reset_excel_results(self, summary_text: str) -> None:
         self.contract_book_analysis = None
         if (
-            self.parsedExcelTable is None
-            or self.missingExcelTable is None
-            or self.excelWarningTable is None
-            or self.excelParseErrorTable is None
+            self.excelDisplayTable is None
+            or self.excelMissingTable is None
+            or self.excelIssueTable is None
             or self.excelSummaryLabel is None
         ):
             return
 
-        set_table_rows(self.parsedExcelTable, EXCEL_PARSED_HEADERS, [], resize_columns=False)
-        set_table_rows(self.missingExcelTable, EXCEL_MISSING_HEADERS, [], resize_columns=False)
-        set_table_rows(self.excelWarningTable, EXCEL_WARNING_HEADERS, [], resize_columns=False)
-        set_table_rows(self.excelParseErrorTable, EXCEL_PARSE_ERROR_HEADERS, [], resize_columns=False)
+        set_table_rows(self.excelDisplayTable, EXCEL_DISPLAY_HEADERS, [], resize_columns=False)
+        set_table_rows(self.excelMissingTable, EXCEL_MISSING_HEADERS, [], resize_columns=False)
+        set_table_rows(self.excelIssueTable, EXCEL_ISSUE_HEADERS, [], resize_columns=False)
         self.excelSummaryLabel.setText(summary_text)
 
     def _reset_folder_results(self, summary_text: str) -> None:
@@ -227,10 +242,15 @@ class UploadLabMainWindow(QMainWindow):
             self._reset_excel_results("Chua doc Excel.")
             QMessageBox.warning(self, "Upload Lab", "Chua chon file Excel.")
             return
+        if self.fromDateEdit is None or self.toDateEdit is None:
+            QMessageBox.critical(self, "Upload Lab", "Khong tim thay truong ngay tren giao dien.")
+            return
 
+        from_date = self.fromDateEdit.text().strip()
+        to_date = self.toDateEdit.text().strip()
         should_resize_columns = self.contract_book_analysis is None
         try:
-            self.contract_book_analysis = analyze_contract_book(path)
+            self.contract_book_analysis = analyze_contract_book(path, from_date=from_date, to_date=to_date)
         except Exception as exc:
             self._reset_excel_results("Chua doc Excel.")
             QMessageBox.critical(self, "Upload Lab", str(exc))
@@ -238,41 +258,45 @@ class UploadLabMainWindow(QMainWindow):
 
         analysis = self.contract_book_analysis
         if (
-            self.parsedExcelTable is None
-            or self.missingExcelTable is None
-            or self.excelWarningTable is None
-            or self.excelParseErrorTable is None
+            self.excelDisplayTable is None
+            or self.excelMissingTable is None
+            or self.excelIssueTable is None
             or self.excelSummaryLabel is None
         ):
             QMessageBox.critical(self, "Upload Lab", "Khong tim thay widget Excel tren giao dien.")
             return
 
         set_table_rows(
-            self.parsedExcelTable,
-            EXCEL_PARSED_HEADERS,
-            [[row.row_index, row.contract_no, row.raw_date, row.raw_contract_no] for row in analysis.valid_rows],
+            self.excelDisplayTable,
+            EXCEL_DISPLAY_HEADERS,
+            [[row.raw_date, row.contract_no, row.row_index] for row in analysis.display_rows],
             resize_columns=should_resize_columns,
         )
         set_table_rows(
-            self.missingExcelTable,
+            self.excelMissingTable,
             EXCEL_MISSING_HEADERS,
             [[item.contract_no, item.year, item.ordinal] for item in analysis.missing_numbers],
             resize_columns=should_resize_columns,
         )
         set_table_rows(
-            self.excelWarningTable,
-            EXCEL_WARNING_HEADERS,
-            [[warning.row_index, warning.kind.value, warning.raw_contract_no, warning.raw_date, warning.message] for warning in analysis.warning_rows],
+            self.excelIssueTable,
+            EXCEL_ISSUE_HEADERS,
+            [
+                [
+                    issue.kind.value,
+                    issue.row_index,
+                    issue.raw_date,
+                    issue.raw_contract_no,
+                    issue.contract_no,
+                    issue.message,
+                ]
+                for issue in analysis.issue_rows
+            ],
             resize_columns=should_resize_columns,
         )
-        set_table_rows(
-            self.excelParseErrorTable,
-            EXCEL_PARSE_ERROR_HEADERS,
-            [[warning.row_index, warning.raw_contract_no, warning.raw_date, warning.message] for warning in analysis.parse_error_rows],
-            resize_columns=should_resize_columns,
-        )
+        summary = analysis.summary
         self.excelSummaryLabel.setText(
-            f"Excel={len(analysis.valid_rows)} | thieu={len(analysis.missing_numbers)} | canh bao={len(analysis.warning_rows)} | loi={len(analysis.parse_error_rows)}"
+            f"Excel={summary.excel_total} | hop_le={summary.valid_count} | thieu={summary.missing_count} | loi={summary.issue_count} | trung={summary.duplicate_count}"
         )
 
     def browse_folder(self) -> None:
@@ -356,7 +380,6 @@ class UploadLabMainWindow(QMainWindow):
             classification = classify_scan_records(
                 records,
                 self.contract_book_analysis,
-                # Qt does not yet load a separate web-list dataset; wire web duplicates later.
                 existing_web_contract_nos=set(),
             )
         except Exception as exc:
@@ -383,12 +406,11 @@ class UploadLabMainWindow(QMainWindow):
             return
 
         self.validUploadSelection = UploadSelection.from_valid_rows(classification.valid_upload_rows)
-        if self.validUploadTable is not None:
-            self.validUploadTable.blockSignals(True)
-            try:
-                set_checkable_upload_rows(self.validUploadTable, classification.valid_upload_rows)
-            finally:
-                self.validUploadTable.blockSignals(False)
+        self.validUploadTable.blockSignals(True)
+        try:
+            set_checkable_upload_rows(self.validUploadTable, classification.valid_upload_rows)
+        finally:
+            self.validUploadTable.blockSignals(False)
         set_table_rows(
             self.notInExcelTable,
             SCAN_NOT_IN_EXCEL_HEADERS,

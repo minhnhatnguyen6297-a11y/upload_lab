@@ -34,6 +34,11 @@ def set_table_rows(
         table.resizeColumnsToContents()
 
 
+def configure_audit_table_scrollbars(table: QTableWidget, *, horizontal: bool = False) -> None:
+    table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+    table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn if horizontal else Qt.ScrollBarAsNeeded)
+
+
 def set_checkable_upload_rows(table: QTableWidget, rows: list) -> None:
     headers = ["Chon", "ID", "So", "Trang thai", "File"]
     table.clear()

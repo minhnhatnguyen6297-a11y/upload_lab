@@ -67,6 +67,7 @@ class QtUIStructureTests(unittest.TestCase):
     def test_excel_tab_widgets_exist(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+        from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QPushButton, QProgressBar, QTabWidget, QTableWidget
 
         from ui_qt.main_window import UploadLabMainWindow
@@ -75,15 +76,15 @@ class QtUIStructureTests(unittest.TestCase):
         window = UploadLabMainWindow()
 
         widget_checks = [
+            ("fromDateEdit", QLineEdit),
+            ("toDateEdit", QLineEdit),
             ("excelPathEdit", QLineEdit),
             ("browseExcelButton", QPushButton),
             ("loadExcelButton", QPushButton),
             ("excelSummaryLabel", QLabel),
-            ("excelResultTabs", QTabWidget),
-            ("parsedExcelTable", QTableWidget),
-            ("missingExcelTable", QTableWidget),
-            ("excelWarningTable", QTableWidget),
-            ("excelParseErrorTable", QTableWidget),
+            ("excelDisplayTable", QTableWidget),
+            ("excelMissingTable", QTableWidget),
+            ("excelIssueTable", QTableWidget),
             ("folderPathEdit", QLineEdit),
             ("browseFolderButton", QPushButton),
             ("scanFolderButton", QPushButton),
@@ -107,7 +108,9 @@ class QtUIStructureTests(unittest.TestCase):
                 self.assertIsNotNone(widget)
                 self.assertIsInstance(widget, widget_type)
 
-        self.assertEqual(window.excelResultTabs.count(), 4)
+        for table in (window.excelDisplayTable, window.excelMissingTable, window.excelIssueTable):
+            self.assertEqual(table.verticalScrollBarPolicy(), Qt.ScrollBarAlwaysOn)
+        self.assertEqual(window.excelIssueTable.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOn)
         self.assertEqual(window.scanResultTabs.count(), 6)
         self.assertIsNotNone(app)
 
@@ -188,7 +191,7 @@ class QtUIStructureTests(unittest.TestCase):
         self.assertIn("21", window.logText.toPlainText())
         self.assertIsNotNone(app)
 
-    def test_failed_excel_load_clears_previous_results(self):
+    def test_excel_load_renders_clean_missing_and_issue_tables(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
         from PySide6.QtWidgets import QApplication
@@ -203,31 +206,54 @@ class QtUIStructureTests(unittest.TestCase):
             sheet = workbook.active
             sheet["A1"] = "SO CONG CHUNG"
             sheet["B1"] = "NGAY, THANG, NAM CONG CHUNG"
-            sheet["A2"] = "01/2026"
-            sheet["B2"] = "05/01/2026"
+            sheet["A2"] = "1/2026"
+            sheet["B2"] = "01/01/2026"
+            sheet["A3"] = "3/2026"
+            sheet["B3"] = "01/01/2026"
+            sheet["A4"] = "66.2026"
+            sheet["B4"] = "01/01/2026"
             workbook.save(workbook_path)
             workbook.close()
 
             window = UploadLabMainWindow(working_dir=temp_root)
 
             window.excelPathEdit.setText(str(workbook_path))
+            window.fromDateEdit.setText("01/01/2026")
+            window.toDateEdit.setText("18/06/2026")
             window.load_excel()
-            self.assertIn("Excel=1", window.excelSummaryLabel.text())
-            self.assertGreater(window.parsedExcelTable.rowCount(), 0)
 
-            missing_path = temp_root / "missing.xlsx"
-            window.excelPathEdit.setText(str(missing_path))
-            with patch("ui_qt.main_window.QMessageBox.critical") as mocked_critical:
-                window.load_excel()
-
-            mocked_critical.assert_called_once()
-            self.assertEqual(window.contract_book_analysis, None)
-            self.assertEqual(window.excelSummaryLabel.text(), "Chua doc Excel.")
-            self.assertEqual(window.parsedExcelTable.rowCount(), 0)
-            self.assertEqual(window.missingExcelTable.rowCount(), 0)
-            self.assertEqual(window.excelWarningTable.rowCount(), 0)
-            self.assertEqual(window.excelParseErrorTable.rowCount(), 0)
+            self.assertIn("Excel=3 | hop_le=2 | thieu=1 | loi=1 | trung=0", window.excelSummaryLabel.text())
+            self.assertEqual(window.excelDisplayTable.rowCount(), 2)
+            self.assertEqual(window.excelDisplayTable.item(0, 1).text(), "1/2026")
+            self.assertEqual(window.excelMissingTable.rowCount(), 1)
+            self.assertEqual(window.excelMissingTable.item(0, 0).text(), "2/2026")
+            self.assertEqual(window.excelIssueTable.rowCount(), 1)
+            self.assertEqual(window.excelIssueTable.item(0, 0).text(), "sai_format")
             self.assertIsNotNone(app)
+
+    def test_failed_excel_load_clears_new_excel_tables(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from PySide6.QtWidgets import QApplication
+
+        from ui_qt.main_window import UploadLabMainWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = UploadLabMainWindow()
+        window.excelDisplayTable.setRowCount(1)
+        window.excelMissingTable.setRowCount(1)
+        window.excelIssueTable.setRowCount(1)
+        window.excelPathEdit.setText(str(Path("missing.xlsx").resolve()))
+
+        with patch("ui_qt.main_window.QMessageBox.critical") as mocked_critical:
+            window.load_excel()
+
+        mocked_critical.assert_called_once()
+        self.assertEqual(window.excelSummaryLabel.text(), "Chua doc Excel.")
+        self.assertEqual(window.excelDisplayTable.rowCount(), 0)
+        self.assertEqual(window.excelMissingTable.rowCount(), 0)
+        self.assertEqual(window.excelIssueTable.rowCount(), 0)
+        self.assertIsNotNone(app)
 
     def test_close_event_quits_running_scan_thread(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
