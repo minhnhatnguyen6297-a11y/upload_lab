@@ -132,7 +132,11 @@ class WebListTab(ttk.Frame):
             self.status.set("Chua chon Excel.")
             return
         try:
-            self.rows = read_exported_contract_rows(export_path)
+            self.rows = read_exported_contract_rows(
+                export_path,
+                from_date=self.from_date_var.get().strip(),
+                to_date=self.to_date_var.get().strip(),
+            )
             missing = find_missing_contract_numbers(self.rows)
         except Exception as exc:
             self.status.set(f"Loi doc Excel: {exc}")

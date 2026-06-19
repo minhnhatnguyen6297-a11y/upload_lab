@@ -32,8 +32,13 @@ class ContractLookupResult:
     raw_value: str = ""
     message: str = ""
 
-def read_exported_contract_rows(export_path: Path | str) -> list[ContractListRow]:
-    analysis = analyze_contract_book(export_path)
+def read_exported_contract_rows(
+    export_path: Path | str,
+    *,
+    from_date: str,
+    to_date: str,
+) -> list[ContractListRow]:
+    analysis = analyze_contract_book(export_path, from_date=from_date, to_date=to_date)
     return [
         ContractListRow(
             row_index=row.row_index,
@@ -42,7 +47,7 @@ def read_exported_contract_rows(export_path: Path | str) -> list[ContractListRow
             year=row.year,
             ordinal=row.ordinal,
         )
-        for row in analysis.valid_rows
+        for row in analysis.display_rows
     ]
 
 
