@@ -8,7 +8,7 @@ from pathlib import Path
 from openpyxl import Workbook
 
 from ui.services.contract_book_audit import (
-    ContractBookWarningKind,
+    ContractBookIssueKind,
     analyze_contract_book,
     parse_contract_book_no,
     parse_contract_date,
@@ -34,11 +34,11 @@ class ContractBookAuditTests(unittest.TestCase):
         workbook.close()
         return path
 
-    def test_parse_contract_book_no_supports_common_forms(self):
-        self.assertEqual(parse_contract_book_no("01/2026"), (2026, 1, "1/2026"))
+    def test_parse_contract_book_no_accepts_only_slash_year_forms(self):
+        self.assertEqual(parse_contract_book_no("001/2026"), (2026, 1, "1/2026"))
         self.assertEqual(parse_contract_book_no("09/2026/CCGD"), (2026, 9, "9/2026"))
-        self.assertEqual(parse_contract_book_no("10.2025"), (2025, 10, "10/2025"))
-        self.assertEqual(parse_contract_book_no("123", default_year=2026), (2026, 123, "123/2026"))
+        self.assertIsNone(parse_contract_book_no("66.2026"))
+        self.assertIsNone(parse_contract_book_no("123", default_year=2026))
 
     def test_parse_contract_date_supports_strings_and_excel_values(self):
         self.assertEqual(parse_contract_date("05/01/2026"), date(2026, 1, 5))
@@ -46,101 +46,84 @@ class ContractBookAuditTests(unittest.TestCase):
         self.assertEqual(parse_contract_date(date(2026, 1, 5)), date(2026, 1, 5))
         self.assertEqual(parse_contract_date(datetime(2026, 1, 5, 14, 30)), date(2026, 1, 5))
 
-    def test_analyze_contract_book_uses_min_to_max_ordinal_only(self):
+    def test_missing_uses_clean_rows_only(self):
         path = self._make_book([
-            ("01/2026", "05/01/2026"),
-            ("03/2026/CCGD", "05/01/2026"),
-            ("5", "06/01/2026"),
+            ("1/2026", "01/01/2026"),
+            ("3/2026", "01/01/2026"),
         ])
 
-        analysis = analyze_contract_book(path)
+        analysis = analyze_contract_book(path, from_date="01/01/2026", to_date="18/06/2026")
 
-        self.assertEqual([row.ordinal for row in analysis.valid_rows], [1, 3, 5])
-        self.assertEqual([item.contract_no for item in analysis.missing_numbers], ["2/2026", "4/2026"])
-        self.assertEqual(analysis.min_ordinal, 1)
-        self.assertEqual(analysis.max_ordinal, 5)
+        self.assertEqual([row.contract_no for row in analysis.display_rows], ["1/2026", "3/2026"])
+        self.assertEqual([item.contract_no for item in analysis.missing_numbers], ["2/2026"])
+        self.assertEqual(analysis.summary.valid_count, 2)
+        self.assertEqual(analysis.summary.missing_count, 1)
 
-    def test_warns_for_unparseable_column_a(self):
+    def test_wrong_year_and_bad_format_do_not_create_missing_for_other_years(self):
         path = self._make_book([
-            ("Nguyen Van A", "05/01/2026"),
-            ("01/2026", "05/01/2026"),
+            ("1/2026", "01/01/2026"),
+            ("3/2026", "01/01/2026"),
+            ("296/2025", "02/01/2026"),
+            ("2047.2025", "02/01/2026"),
+            ("344/2006", "02/01/2026"),
         ])
 
-        analysis = analyze_contract_book(path)
+        analysis = analyze_contract_book(path, from_date="01/01/2026", to_date="18/06/2026")
 
-        self.assertEqual(len(analysis.parse_error_rows), 1)
-        self.assertEqual(analysis.parse_error_rows[0].row_index, 2)
-        self.assertEqual(analysis.parse_error_rows[0].raw_contract_no, "Nguyen Van A")
-        self.assertEqual(analysis.parse_error_rows[0].kind, ContractBookWarningKind.PARSE_ERROR)
+        self.assertEqual([item.contract_no for item in analysis.missing_numbers], ["2/2026"])
+        self.assertEqual(
+            [(issue.raw_contract_no, issue.kind) for issue in analysis.issue_rows],
+            [
+                ("296/2025", ContractBookIssueKind.WRONG_YEAR),
+                ("2047.2025", ContractBookIssueKind.BAD_FORMAT),
+                ("344/2006", ContractBookIssueKind.WRONG_YEAR),
+            ],
+        )
 
-    def test_warns_when_date_cannot_be_parsed_after_contract_number(self):
+    def test_duplicate_numbers_move_all_duplicate_rows_to_issues(self):
         path = self._make_book([
-            ("01/2026", "not a date"),
+            ("59/2026", "01/01/2026"),
+            ("60/2026", "01/01/2026"),
+            ("060/2026/CCGD", "01/01/2026"),
+            ("61/2026", "01/01/2026"),
         ])
 
-        analysis = analyze_contract_book(path)
+        analysis = analyze_contract_book(path, from_date="01/01/2026", to_date="18/06/2026")
 
-        self.assertTrue(any(
-            warning.kind == ContractBookWarningKind.DATE_PARSE_ERROR
-            and warning.row_index == 2
-            for warning in analysis.warning_rows
-        ))
+        self.assertEqual([row.contract_no for row in analysis.display_rows], ["59/2026", "61/2026"])
+        duplicate_issues = [issue for issue in analysis.issue_rows if issue.kind == ContractBookIssueKind.DUPLICATE]
+        self.assertEqual([issue.contract_no for issue in duplicate_issues], ["60/2026", "60/2026"])
+        self.assertEqual(analysis.summary.duplicate_count, 2)
 
-    def test_warns_when_contract_year_disagrees_with_date_year(self):
+    def test_later_number_with_earlier_date_is_date_sequence_issue(self):
         path = self._make_book([
-            ("10.2025", "05/02/2026"),
-            ("11/2026", "06/02/2026"),
+            ("1/2026", "02/01/2026"),
+            ("2/2026", "03/01/2026"),
+            ("3/2026", "01/01/2026"),
+            ("4/2026", "04/01/2026"),
         ])
 
-        analysis = analyze_contract_book(path)
+        analysis = analyze_contract_book(path, from_date="01/01/2026", to_date="18/06/2026")
 
-        self.assertTrue(any(
-            warning.kind == ContractBookWarningKind.YEAR_MISMATCH
-            and warning.row_index == 2
-            for warning in analysis.warning_rows
-        ))
+        issue = next(issue for issue in analysis.issue_rows if issue.kind == ContractBookIssueKind.DATE_SEQUENCE)
+        self.assertEqual(issue.contract_no, "3/2026")
+        self.assertEqual([row.contract_no for row in analysis.display_rows], ["1/2026", "2/2026", "4/2026"])
 
-    def test_warns_when_date_order_goes_backwards(self):
+    def test_same_day_jump_over_ten_moves_later_row_to_issue(self):
         path = self._make_book([
-            ("01/2026", "06/02/2026"),
-            ("02/2026", "05/02/2026"),
+            ("1/2026", "01/01/2026"),
+            ("2/2026", "01/01/2026"),
+            ("3/2026", "01/01/2026"),
+            ("20/2026", "01/01/2026"),
+            ("21/2026", "02/01/2026"),
         ])
 
-        analysis = analyze_contract_book(path)
+        analysis = analyze_contract_book(path, from_date="01/01/2026", to_date="18/06/2026")
 
-        self.assertTrue(any(
-            warning.kind == ContractBookWarningKind.DATE_ORDER
-            and warning.row_index == 3
-            for warning in analysis.warning_rows
-        ))
-
-    def test_warns_when_ordinal_order_goes_backwards(self):
-        path = self._make_book([
-            ("05/2026", "05/02/2026"),
-            ("04/2026", "05/02/2026"),
-        ])
-
-        analysis = analyze_contract_book(path)
-
-        self.assertTrue(any(
-            warning.kind == ContractBookWarningKind.ORDINAL_ORDER
-            and warning.row_index == 3
-            for warning in analysis.warning_rows
-        ))
-
-    def test_does_not_warn_ordinal_order_on_year_rollover(self):
-        path = self._make_book([
-            ("99/2025", "31/12/2025"),
-            ("01/2026", "01/01/2026"),
-        ])
-
-        analysis = analyze_contract_book(path)
-
-        self.assertFalse(any(
-            warning.kind == ContractBookWarningKind.ORDINAL_ORDER
-            and warning.row_index == 3
-            for warning in analysis.warning_rows
-        ))
+        issue = next(issue for issue in analysis.issue_rows if issue.kind == ContractBookIssueKind.SAME_DAY_JUMP)
+        self.assertEqual(issue.contract_no, "20/2026")
+        self.assertNotIn("20/2026", [row.contract_no for row in analysis.display_rows])
+        self.assertNotIn("20/2026", [item.contract_no for item in analysis.missing_numbers])
 
     def test_skips_header_row_when_column_a_looks_like_contract_header(self):
         path = self._make_book([
@@ -148,9 +131,9 @@ class ContractBookAuditTests(unittest.TestCase):
             ("01/2026", "05/01/2026"),
         ])
 
-        analysis = analyze_contract_book(path)
+        analysis = analyze_contract_book(path, from_date="01/01/2026", to_date="18/06/2026")
 
-        self.assertEqual([row.row_index for row in analysis.valid_rows], [3])
+        self.assertEqual([row.row_index for row in analysis.display_rows], [3])
 
 
 if __name__ == "__main__":
