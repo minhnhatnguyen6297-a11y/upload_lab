@@ -20,15 +20,16 @@ copy .env.example .env
 - `batch_scan.py`: quet folder, lap manifest, cap nhat `registry.sqlite3`
 - `extract_contract.py`: trich xuat noi dung hop dong va map sang web form
 - `playwright_uploader.py`: dry-run/upload Playwright
-- `ui_runner.py`: entrypoint Tkinter mong
-- `ui/`: UI Tkinter modular va service phuc vu UI
+- `ui_runner.py`: entrypoint Qt/PySide6 mong
+- `ui_qt/`: giao dien Qt/PySide6 hien tai
+- `ui/services/`: service dung chung cho UI Qt
 - `review_regex_samples.py`: chay review regex tren van ban mau trong `regex_review_samples/input/`
 - `tests/`: test hoi quy cho scan/extract/upload/UI service
 
 ## Test
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest tests.test_upload_lab_extract_contract tests.test_upload_batch_scan tests.test_playwright_uploader tests.test_web_list_service tests.test_regex_review_samples tests.test_tkinter_ui_structure
+.\.venv\Scripts\python.exe -m unittest tests.test_upload_lab_extract_contract tests.test_upload_batch_scan tests.test_playwright_uploader tests.test_web_list_service tests.test_regex_review_samples tests.test_qt_ui_structure tests.test_scan_classification_service tests.test_upload_selection_service
 ```
 
 ## Regex review

@@ -1,1 +1,1 @@
-"""Tkinter UI package for Upload Lab."""
+"""Shared UI services for Upload Lab."""
