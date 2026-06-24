@@ -4,8 +4,8 @@ from dataclasses import dataclass
 import re
 from typing import Iterable, Protocol
 
-from ui.services.contract_book_audit import ContractBookAnalysis
 from playwright_uploader import normalize_contract_no_for_compare
+from ui.services.contract_book_audit import ContractBookAnalysis, parse_contract_book_no
 
 
 class _ScanRecord(Protocol):
@@ -17,7 +17,7 @@ class _ScanRecord(Protocol):
 
 
 @dataclass(frozen=True)
-class ClassifiedScanRow:
+class FolderScanRow:
     record_id: int
     contract_no: str
     normalized_contract_no: str
@@ -25,38 +25,15 @@ class ClassifiedScanRow:
     source_file: str
     missing_fields: list[str]
     selected: bool
-    reason: str
+    note: str
+    has_issue: bool = False
 
 
 @dataclass(frozen=True)
 class ScanClassification:
-    valid_upload_rows: list[ClassifiedScanRow]
-    not_in_excel_rows: list[ClassifiedScanRow]
-    missing_field_rows: list[ClassifiedScanRow]
-    web_duplicate_rows: list[ClassifiedScanRow]
-    duplicate_local_rows: list[ClassifiedScanRow]
-    excel_missing_in_folder: list[str]
-
-
-def _make_row(record: _ScanRecord, *, selected: bool) -> ClassifiedScanRow:
-    normalized_contract_no = _canonical_contract_no(record.contract_no)
-    return ClassifiedScanRow(
-        record_id=int(record.record_id),
-        contract_no=str(record.contract_no),
-        normalized_contract_no=normalized_contract_no,
-        status=str(record.status),
-        source_file=str(record.source_file),
-        missing_fields=list(record.missing_fields or []),
-        selected=selected,
-        reason="Hop le de upload." if selected else "Khong hop le de upload.",
-    )
-
-
-def _sort_contract_no(value: str) -> tuple[int, int, str]:
-    match = re.fullmatch(r"(\d+)/(\d{4})", str(value or "").strip())
-    if match:
-        return int(match.group(2)), int(match.group(1)), value
-    return (0, 0, value)
+    folder_rows: list[FolderScanRow]
+    missing_in_excel_record_ids: set[int]
+    has_excel: bool
 
 
 def _canonical_contract_no(value: str) -> str:
@@ -67,72 +44,93 @@ def _canonical_contract_no(value: str) -> str:
     return normalized
 
 
+def _excel_contract_nos(contract_book: ContractBookAnalysis | None) -> set[str]:
+    if contract_book is None:
+        return set()
+    return {_canonical_contract_no(row.contract_no) for row in contract_book.valid_rows}
+
+
+def _allowed_years(contract_book: ContractBookAnalysis | None) -> set[int]:
+    if contract_book is None:
+        return set()
+    return {int(row.year) for row in contract_book.valid_rows}
+
+
+def _folder_contract_issue(raw_contract_no: str, *, allowed_years: set[int]) -> str:
+    text = str(raw_contract_no or "").strip()
+    if not text:
+        return "khong co so"
+    loose_year_match = re.search(r"/\s*(\d{4})\b", text)
+    if loose_year_match and allowed_years and int(loose_year_match.group(1)) not in allowed_years:
+        return "sai nam"
+    if parse_contract_book_no(text) is None:
+        return "sai format"
+    if not re.fullmatch(r"\s*\d+/\d{4}/CCGD\s*", text, flags=re.IGNORECASE):
+        return "sai format"
+    normalized = _canonical_contract_no(text)
+    match = re.fullmatch(r"(\d+)/(\d{4})", normalized)
+    if match and allowed_years and int(match.group(2)) not in allowed_years:
+        return "sai nam"
+    return ""
+
+
 def classify_scan_records(
     records: Iterable[_ScanRecord],
-    contract_book: ContractBookAnalysis,
-    *,
-    existing_web_contract_nos: set[str],
+    contract_book: ContractBookAnalysis | None,
 ) -> ScanClassification:
-    excel_contract_nos = {_canonical_contract_no(row.contract_no) for row in contract_book.valid_rows}
-    web_contract_nos = {_canonical_contract_no(value) for value in existing_web_contract_nos}
-    valid_rows: list[ClassifiedScanRow] = []
-    not_in_excel_rows: list[ClassifiedScanRow] = []
-    missing_field_rows: list[ClassifiedScanRow] = []
-    web_duplicate_rows: list[ClassifiedScanRow] = []
-    duplicate_local_rows: list[ClassifiedScanRow] = []
-    seen_non_empty_contract_nos: set[str] = set()
-    found_excel_contract_nos: set[str] = set()
+    record_list = list(records)
+    excel_contract_nos = _excel_contract_nos(contract_book)
+    allowed_years = _allowed_years(contract_book)
+    has_excel = contract_book is not None
 
-    for record in records:
-        normalized_contract_no = _canonical_contract_no(record.contract_no)
-        row = _make_row(record, selected=False)
+    counts_by_contract_no: dict[str, int] = {}
+    for record in record_list:
+        normalized = _canonical_contract_no(record.contract_no)
+        if normalized:
+            counts_by_contract_no[normalized] = counts_by_contract_no.get(normalized, 0) + 1
 
-        if normalized_contract_no:
-            if normalized_contract_no in seen_non_empty_contract_nos:
-                duplicate_local_rows.append(row)
-                continue
-            seen_non_empty_contract_nos.add(normalized_contract_no)
+    folder_rows: list[FolderScanRow] = []
+    missing_in_excel_record_ids: set[int] = set()
+    for record in record_list:
+        normalized = _canonical_contract_no(record.contract_no)
+        missing_fields = list(record.missing_fields or [])
+        notes: list[str] = []
+        selected = False
+        issue = _folder_contract_issue(record.contract_no, allowed_years=allowed_years)
 
-        if normalized_contract_no in excel_contract_nos:
-            found_excel_contract_nos.add(normalized_contract_no)
-            if normalized_contract_no in web_contract_nos:
-                web_duplicate_rows.append(row)
-                continue
-        elif normalized_contract_no in web_contract_nos:
-            web_duplicate_rows.append(row)
-            continue
+        if issue:
+            notes.append(issue)
+        elif has_excel:
+            if normalized in excel_contract_nos:
+                notes.append("da co trong Excel")
+            else:
+                notes.append("chua co trong Excel")
+                selected = True
+                missing_in_excel_record_ids.add(int(record.record_id))
+        else:
+            notes.append("chua load Excel")
 
-        if normalized_contract_no not in excel_contract_nos:
-            not_in_excel_rows.append(row)
-            continue
+        if missing_fields:
+            notes.append("missing: " + ", ".join(missing_fields))
+        if normalized and counts_by_contract_no.get(normalized, 0) > 1:
+            notes.append("trung trong folder")
 
-        if list(record.missing_fields or []):
-            missing_field_rows.append(row)
-            continue
-
-        valid_rows.append(
-            ClassifiedScanRow(
-                record_id=row.record_id,
-                contract_no=row.contract_no,
-                normalized_contract_no=row.normalized_contract_no,
-                status=row.status,
-                source_file=row.source_file,
-                missing_fields=row.missing_fields,
-                selected=True,
-                reason="Hop le de upload.",
+        folder_rows.append(
+            FolderScanRow(
+                record_id=int(record.record_id),
+                contract_no=str(record.contract_no),
+                normalized_contract_no=normalized,
+                status=str(record.status),
+                source_file=str(record.source_file),
+                missing_fields=missing_fields,
+                selected=selected,
+                note="; ".join(notes),
+                has_issue=bool(issue),
             )
         )
 
-    excel_missing_in_folder = sorted(
-        (contract_no for contract_no in excel_contract_nos if contract_no not in found_excel_contract_nos),
-        key=_sort_contract_no,
-    )
-
     return ScanClassification(
-        valid_upload_rows=valid_rows,
-        not_in_excel_rows=not_in_excel_rows,
-        missing_field_rows=missing_field_rows,
-        web_duplicate_rows=web_duplicate_rows,
-        duplicate_local_rows=duplicate_local_rows,
-        excel_missing_in_folder=excel_missing_in_folder,
+        folder_rows=folder_rows,
+        missing_in_excel_record_ids=missing_in_excel_record_ids,
+        has_excel=has_excel,
     )

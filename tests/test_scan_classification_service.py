@@ -25,7 +25,22 @@ class ScanClassificationServiceTests(unittest.TestCase):
         ]
         return ContractBookAnalysis(Path("book.xlsx"), rows, [], [], [], 1, 2)
 
-    def test_classifies_valid_match_and_defaults_selected(self):
+    def test_without_excel_lists_all_folder_rows_and_selects_none(self):
+        result = classify_scan_records(
+            [
+                FakeRecord(10, "1/2026/CCGD", "extracted", Path("a.docx"), []),
+                FakeRecord(11, "9/2026/CCGD", "extracted", Path("b.docx"), ["tai_san"]),
+            ],
+            None,
+        )
+
+        self.assertEqual([row.record_id for row in result.folder_rows], [10, 11])
+        self.assertEqual([row.selected for row in result.folder_rows], [False, False])
+        self.assertEqual(result.missing_in_excel_record_ids, set())
+        self.assertIn("chua load Excel", result.folder_rows[0].note)
+        self.assertIn("missing: tai_san", result.folder_rows[1].note)
+
+    def test_with_excel_selects_numbers_missing_from_excel_by_default(self):
         result = classify_scan_records(
             [
                 FakeRecord(10, "1/2026/CCGD", "extracted", Path("a.docx"), []),
@@ -33,97 +48,71 @@ class ScanClassificationServiceTests(unittest.TestCase):
                 FakeRecord(12, "2/2026/CCGD", "extracted", Path("c.docx"), ["tai_san"]),
             ],
             self._analysis(),
-            existing_web_contract_nos=set(),
         )
 
-        self.assertEqual([row.record_id for row in result.valid_upload_rows], [10])
-        self.assertEqual(result.valid_upload_rows[0].selected, True)
-        self.assertEqual([row.record_id for row in result.not_in_excel_rows], [11])
-        self.assertEqual([row.record_id for row in result.missing_field_rows], [12])
+        self.assertEqual([row.record_id for row in result.folder_rows], [10, 11, 12])
+        self.assertEqual([row.selected for row in result.folder_rows], [False, True, False])
+        self.assertEqual(result.missing_in_excel_record_ids, {11})
+        self.assertIn("da co trong Excel", result.folder_rows[0].note)
+        self.assertIn("chua co trong Excel", result.folder_rows[1].note)
+        self.assertIn("missing: tai_san", result.folder_rows[2].note)
 
-    def test_classifies_web_duplicates(self):
-        result = classify_scan_records(
-            [FakeRecord(10, "1/2026/CCGD", "extracted", Path("a.docx"), [])],
-            self._analysis(),
-            existing_web_contract_nos={"1/2026"},
-        )
-
-        self.assertEqual([row.record_id for row in result.web_duplicate_rows], [10])
-        self.assertEqual(result.valid_upload_rows, [])
-
-    def test_classifies_web_duplicate_before_not_in_excel(self):
-        result = classify_scan_records(
-            [FakeRecord(10, "9/2026/CCGD", "extracted", Path("a.docx"), [])],
-            self._analysis(),
-            existing_web_contract_nos={"9/2026"},
-        )
-
-        self.assertEqual([row.record_id for row in result.web_duplicate_rows], [10])
-        self.assertEqual(result.not_in_excel_rows, [])
-        self.assertEqual(result.valid_upload_rows, [])
-
-    def test_classifies_local_duplicates_after_first_valid_row(self):
+    def test_missing_fields_and_local_duplicates_are_notes_not_blockers(self):
         result = classify_scan_records(
             [
-                FakeRecord(10, "1/2026/CCGD", "extracted", Path("a.docx"), []),
-                FakeRecord(11, "1/2026/CCGD", "extracted", Path("b.docx"), []),
+                FakeRecord(10, "9/2026/CCGD", "extracted", Path("a.docx"), ["tai_san"]),
+                FakeRecord(11, "9/2026/CCGD", "extracted", Path("b.docx"), []),
             ],
             self._analysis(),
-            existing_web_contract_nos=set(),
         )
 
-        self.assertEqual([row.record_id for row in result.valid_upload_rows], [10])
-        self.assertEqual([row.record_id for row in result.duplicate_local_rows], [11])
+        self.assertEqual([row.record_id for row in result.folder_rows], [10, 11])
+        self.assertEqual([row.selected for row in result.folder_rows], [True, True])
+        self.assertEqual(result.missing_in_excel_record_ids, {10, 11})
+        self.assertIn("missing: tai_san", result.folder_rows[0].note)
+        self.assertIn("trung trong folder", result.folder_rows[0].note)
+        self.assertIn("trung trong folder", result.folder_rows[1].note)
 
-    def test_classifies_local_duplicates_after_missing_field_row(self):
+    def test_blank_contract_number_is_never_auto_selected_as_missing_excel(self):
         result = classify_scan_records(
-            [
-                FakeRecord(10, "1/2026/CCGD", "extracted", Path("a.docx"), ["tai_san"]),
-                FakeRecord(11, "1/2026/CCGD", "extracted", Path("b.docx"), []),
-            ],
+            [FakeRecord(10, "", "extracted", Path("a.docx"), [])],
             self._analysis(),
-            existing_web_contract_nos=set(),
         )
 
-        self.assertEqual([row.record_id for row in result.missing_field_rows], [10])
-        self.assertEqual([row.record_id for row in result.duplicate_local_rows], [11])
-        self.assertEqual(result.valid_upload_rows, [])
-
-    def test_missing_field_row_counts_as_found_in_folder_for_excel_missing(self):
-        result = classify_scan_records(
-            [FakeRecord(10, "1/2026/CCGD", "extracted", Path("a.docx"), ["tai_san"])],
-            self._analysis(),
-            existing_web_contract_nos=set(),
-        )
-
-        self.assertEqual([row.record_id for row in result.missing_field_rows], [10])
-        self.assertEqual(result.excel_missing_in_folder, ["2/2026"])
+        self.assertEqual([row.record_id for row in result.folder_rows], [10])
+        self.assertEqual(result.folder_rows[0].selected, False)
+        self.assertEqual(result.missing_in_excel_record_ids, set())
+        self.assertIn("khong co so", result.folder_rows[0].note)
 
     def test_leading_zero_scan_number_matches_excel_canonical_contract(self):
         result = classify_scan_records(
             [FakeRecord(10, "01/2026/CCGD", "extracted", Path("a.docx"), [])],
             self._analysis(),
-            existing_web_contract_nos=set(),
         )
 
-        self.assertEqual([row.record_id for row in result.valid_upload_rows], [10])
-        self.assertEqual(result.valid_upload_rows[0].contract_no, "01/2026/CCGD")
-        self.assertEqual(result.valid_upload_rows[0].normalized_contract_no, "1/2026")
-        self.assertEqual(result.not_in_excel_rows, [])
+        self.assertEqual(result.folder_rows[0].normalized_contract_no, "1/2026")
+        self.assertEqual(result.folder_rows[0].selected, False)
+        self.assertIn("da co trong Excel", result.folder_rows[0].note)
 
-    def test_reports_excel_numbers_missing_from_valid_scan_rows(self):
+    def test_bad_format_and_wrong_year_folder_numbers_are_marked_as_issues(self):
         result = classify_scan_records(
             [
-                FakeRecord(10, "1/2026/CCGD", "extracted", Path("a.docx"), []),
-                FakeRecord(11, "2/2026/CCGD", "extracted", Path("b.docx"), ["tai_san"]),
-                FakeRecord(12, "9/2026/CCGD", "extracted", Path("c.docx"), []),
+                FakeRecord(10, "1572/2025/VBTT/CCGD", "extracted", Path("old.docx"), []),
+                FakeRecord(11, "2042026/CCGD", "extracted", Path("bad.docx"), []),
+                FakeRecord(12, "9/2026/CCGD", "extracted", Path("ok.docx"), []),
             ],
             self._analysis(),
-            existing_web_contract_nos=set(),
         )
 
-        self.assertEqual(result.excel_missing_in_folder, [])
-        self.assertEqual([row.record_id for row in result.valid_upload_rows], [10])
+        rows = {row.record_id: row for row in result.folder_rows}
+        self.assertTrue(rows[10].has_issue)
+        self.assertFalse(rows[10].selected)
+        self.assertIn("sai nam", rows[10].note)
+        self.assertTrue(rows[11].has_issue)
+        self.assertFalse(rows[11].selected)
+        self.assertIn("sai format", rows[11].note)
+        self.assertFalse(rows[12].has_issue)
+        self.assertTrue(rows[12].selected)
 
 
 if __name__ == "__main__":

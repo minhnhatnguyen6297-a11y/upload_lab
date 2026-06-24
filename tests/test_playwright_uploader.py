@@ -94,6 +94,43 @@ class _FakeSelectLocator:
         return None
 
 
+class _FakeComboLocator:
+    def __init__(self):
+        self.fill_values: list[str] = []
+        self.type_values: list[str] = []
+        self.press_keys: list[str] = []
+        self.evaluate_scripts: list[str] = []
+
+    def count(self):
+        return 1
+
+    def evaluate(self, script: str):
+        self.evaluate_scripts.append(script)
+        if "tagName" in script:
+            return "input"
+        if "type" in script:
+            return "text"
+        if "role" in script:
+            return "combobox"
+        if "contenteditable" in script:
+            return ""
+        if "aria-disabled" in script:
+            return False
+        return None
+
+    def click(self):
+        return None
+
+    def fill(self, value: str):
+        self.fill_values.append(value)
+
+    def type(self, value: str, delay: int = 0):
+        self.type_values.append(value)
+
+    def press(self, key: str):
+        self.press_keys.append(key)
+
+
 class _FakePreparePage:
     def __init__(self):
         self.url = "https://example.test/create"
@@ -119,6 +156,25 @@ class _FakePreparePage:
 
     def close(self):
         self.close_calls += 1
+
+
+class _FakeBrowserForContext:
+    def __init__(self):
+        self.context_kwargs: dict = {}
+
+    def new_context(self, **kwargs):
+        self.context_kwargs = kwargs
+        return SimpleNamespace(pages=[])
+
+
+class _FakeChromiumForContext:
+    def __init__(self, browser: _FakeBrowserForContext):
+        self.browser = browser
+        self.launch_kwargs: dict = {}
+
+    def launch(self, **kwargs):
+        self.launch_kwargs = kwargs
+        return self.browser
 
 
 class PlaywrightUploaderQueueTests(unittest.TestCase):
@@ -199,6 +255,57 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
 
         self.assertEqual([record.record_id for record in records], [second_id])
         self.assertNotEqual(first_id, second_id)
+
+    def test_load_upload_queue_can_filter_statuses_for_prepare_mode(self):
+        run_id = "status-filter-run"
+        output1 = make_output_json(
+            self.workdir / "output" / "status1.json",
+            contract_no="111/2026/CCGD",
+            file_goc=str(self.root / "a.docx"),
+        )
+        output2 = make_output_json(
+            self.workdir / "output" / "status2.json",
+            contract_no="222/2026/CCGD",
+            file_goc=str(self.root / "b.docx"),
+        )
+        output3 = make_output_json(
+            self.workdir / "output" / "status3.json",
+            contract_no="333/2026/CCGD",
+            file_goc=str(self.root / "c.docx"),
+        )
+        self._seed_record(
+            file_key="status-1",
+            run_id=run_id,
+            contract_no="111/2026/CCGD",
+            status="extracted",
+            output_json_path=output1,
+        )
+        self._seed_record(
+            file_key="status-2",
+            run_id=run_id,
+            contract_no="222/2026/CCGD",
+            status="upload_failed",
+            output_json_path=output2,
+        )
+        self._seed_record(
+            file_key="status-3",
+            run_id=run_id,
+            contract_no="333/2026/CCGD",
+            status="prepared_dry_run",
+            output_json_path=output3,
+        )
+        manifest_path = self.workdir / "runs" / "status-filter.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps({"run_id": run_id}), encoding="utf-8")
+
+        _manifest, records, total_pending = load_upload_queue(
+            manifest_path,
+            working_dir=self.workdir,
+            statuses=("extracted", "upload_failed"),
+        )
+
+        self.assertEqual(total_pending, 2)
+        self.assertEqual([record.contract_no for record in records], ["111/2026/CCGD", "222/2026/CCGD"])
 
     def test_finalize_uploaded_records_marks_selected_rows(self):
         run_id = "run123"
@@ -382,6 +489,35 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
         self.assertTrue(status["storage_state_exists"])
         self.assertEqual(status["storage_state_path"], storage_state.resolve())
 
+    def test_ensure_context_uses_responsive_viewport_for_manual_browser(self):
+        save_uploader_env(
+            {
+                "ND_BASE_URL": "https://example.test",
+                "ND_LOGIN_URL": "https://example.test/login",
+                "ND_CREATE_URL": "https://example.test/create",
+                "ND_USERNAME": "operator",
+                "ND_PASSWORD": "secret",
+                "ND_STORAGE_STATE_PATH": "nd_storage_state.json",
+                "ND_BROWSER_CHANNEL": "chrome",
+            },
+            base_dir=self.workdir,
+        )
+        session = NamDinhUploaderSession(
+            load_uploader_settings(self.workdir),
+            working_dir=self.workdir,
+            log_callback=lambda _msg: None,
+        )
+        fake_browser = _FakeBrowserForContext()
+        fake_chromium = _FakeChromiumForContext(fake_browser)
+        fake_playwright = SimpleNamespace(chromium=fake_chromium)
+        fake_sync_playwright = lambda: SimpleNamespace(start=lambda: fake_playwright)
+
+        with patch.object(session, "_import_playwright", return_value=(fake_sync_playwright, TimeoutError)):
+            session._ensure_context()
+
+        self.assertIsNone(fake_browser.context_kwargs["viewport"])
+        self.assertIn("--start-maximized", fake_chromium.launch_kwargs["args"])
+
     def test_prepare_manifest_emits_structured_progress_and_updates_registry(self):
         run_id = "run-progress"
         source_path = self.root / "source.docx"
@@ -482,6 +618,90 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
         self.assertIn("Hay ra soat, luu, finalize", summary["message"])
         self.assertNotIn("dong browser", summary["message"])
 
+    def test_prepare_manifest_continues_with_next_unprepared_chunk(self):
+        run_id = "run-chunks"
+        record_ids: list[int] = []
+        for index in range(3):
+            contract_no = f"70{index + 1}/2026/CCGD"
+            output_path = make_output_json(
+                self.workdir / "output" / f"chunk{index}.json",
+                contract_no=contract_no,
+                file_goc=str(self.root / f"chunk{index}.docx"),
+            )
+            record_ids.append(
+                self._seed_record(
+                    file_key=f"chunk-{index}",
+                    run_id=run_id,
+                    contract_no=contract_no,
+                    status="extracted",
+                    output_json_path=output_path,
+                )
+            )
+
+        manifest_path = self.workdir / "runs" / "chunk_manifest.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps({"run_id": run_id}), encoding="utf-8")
+
+        save_uploader_env(
+            {
+                "ND_BASE_URL": "https://example.test",
+                "ND_LOGIN_URL": "https://example.test/login",
+                "ND_CREATE_URL": "https://example.test/create",
+                "ND_USERNAME": "operator",
+                "ND_PASSWORD": "secret",
+                "ND_STORAGE_STATE_PATH": "nd_storage_state.json",
+                "ND_MAX_PREPARED_TABS": "2",
+                "ND_POST_PREPARE_DELAY_MS": "0",
+            },
+            base_dir=self.workdir,
+        )
+        (self.workdir / "nd_storage_state.json").write_text("{}", encoding="utf-8")
+        session = NamDinhUploaderSession(
+            load_uploader_settings(self.workdir),
+            working_dir=self.workdir,
+            log_callback=lambda _msg: None,
+        )
+        prepared_contracts: list[str] = []
+
+        def fake_prepare(record, artifact_dir):
+            prepared_contracts.append(record.contract_no)
+            screenshot = artifact_dir / f"before_save_{record.record_id}.png"
+            debug_json = artifact_dir / f"debug_{record.record_id}.json"
+            screenshot.write_text("img", encoding="utf-8")
+            debug_json.write_text("{}", encoding="utf-8")
+            return {
+                "status": "prepared_dry_run",
+                "verify_json": json.dumps({"fields": {"so_cong_chung": {"success": True}}}),
+                "artifact_dir": str(artifact_dir),
+                "screenshot": str(screenshot),
+                "debug_json": str(debug_json),
+            }
+
+        selected_ids = set(record_ids)
+        with patch.object(NamDinhUploaderSession, "ensure_authenticated", return_value=None), patch.object(
+            NamDinhUploaderSession,
+            "_prepare_record",
+            side_effect=fake_prepare,
+        ):
+            first_summary = session.prepare_manifest(
+                manifest_path,
+                Event(),
+                selected_record_ids=selected_ids,
+                exclude_contract_nos=set(),
+            )
+            second_summary = session.prepare_manifest(
+                manifest_path,
+                Event(),
+                selected_record_ids=selected_ids,
+                exclude_contract_nos=set(),
+            )
+
+        self.assertEqual(first_summary["prepared_count"], 2)
+        self.assertEqual(first_summary["remaining"], 1)
+        self.assertEqual(second_summary["prepared_count"], 1)
+        self.assertEqual(second_summary["remaining"], 0)
+        self.assertEqual(prepared_contracts, ["701/2026/CCGD", "702/2026/CCGD", "703/2026/CCGD"])
+
     def test_prepare_record_keeps_page_open_for_manual_review(self):
         source_path = self.root / "prepare_keep_open.docx"
         source_path.write_text("dummy", encoding="utf-8")
@@ -566,6 +786,63 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
             side_effect=lambda *_args, **_kwargs: locator.selected_label,
         ):
             self.assertTrue(session._fill_dropdown(page, "ten_hop_dong", "Hợp đồng chuyển nhượng"))
+
+    def test_fill_dropdown_retries_when_value_visible_but_validation_still_empty(self):
+        session = NamDinhUploaderSession(
+            load_uploader_settings(self.workdir),
+            working_dir=self.workdir,
+            log_callback=lambda _msg: None,
+        )
+        locator = _FakeComboLocator()
+        expected = "Hop dong chuyen nhuong quyen su dung dat"
+        page = SimpleNamespace(
+            wait_for_timeout=lambda _ms: None,
+            keyboard=SimpleNamespace(press=lambda _key: None),
+            get_by_role=lambda *args, **kwargs: _EmptyLocator(),
+            get_by_text=lambda *args, **kwargs: _EmptyLocator(),
+        )
+
+        with patch.object(session, "_resolve_control_locator", return_value=(locator, "fake_combo")), patch.object(
+            session,
+            "_read_field_value",
+            side_effect=["", expected, expected],
+        ), patch.object(
+            session,
+            "_read_field_validation_error",
+            side_effect=["Ten hop dong khong duoc de trong.", ""],
+        ):
+            self.assertTrue(session._fill_dropdown(page, "ten_hop_dong", expected))
+
+        self.assertEqual(locator.type_values, [expected, expected])
+        self.assertIn("Enter", locator.press_keys)
+        self.assertTrue(any("dispatchEvent" in script and "change" in script for script in locator.evaluate_scripts))
+
+    def test_fill_dropdown_clears_with_keyboard_and_selects_first_autocomplete_option(self):
+        session = NamDinhUploaderSession(
+            load_uploader_settings(self.workdir),
+            working_dir=self.workdir,
+            log_callback=lambda _msg: None,
+        )
+        locator = _FakeComboLocator()
+        expected = "Hop dong chuyen nhuong quyen su dung dat"
+        page = SimpleNamespace(
+            wait_for_timeout=lambda _ms: None,
+            keyboard=SimpleNamespace(press=lambda _key: None),
+            get_by_role=lambda *args, **kwargs: _EmptyLocator(),
+            get_by_text=lambda *args, **kwargs: _EmptyLocator(),
+        )
+
+        with patch.object(session, "_resolve_control_locator", return_value=(locator, "fake_combo")), patch.object(
+            session,
+            "_read_field_value",
+            side_effect=["", expected],
+        ), patch.object(session, "_read_field_validation_error", return_value=""):
+            self.assertTrue(session._fill_dropdown(page, "ten_hop_dong", expected))
+
+        self.assertIn("Control+A", locator.press_keys)
+        self.assertIn("Backspace", locator.press_keys)
+        self.assertIn("ArrowDown", locator.press_keys)
+        self.assertIn("Enter", locator.press_keys)
 
 
 if __name__ == "__main__":

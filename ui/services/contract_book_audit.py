@@ -39,6 +39,7 @@ class MissingContractNumber:
     year: int
     ordinal: int
     contract_no: str
+    note: str
 
 
 @dataclass(frozen=True)
@@ -198,25 +199,39 @@ def _build_missing_numbers(rows: list[ContractBookDisplayRow]) -> list[MissingCo
                         year=year,
                         ordinal=ordinal,
                         contract_no=f"{ordinal}/{year}",
+                        note="Thieu that",
                     )
                 )
     return missing
 
 
-def _filter_missing_numbers(
+def _annotate_missing_numbers(
     missing_numbers: list[MissingContractNumber],
     issues: list[ContractBookIssueRow],
 ) -> list[MissingContractNumber]:
-    blocked_ordinals = {
-        (int(issue.year), int(issue.ordinal))
-        for issue in issues
-        if issue.year is not None and issue.ordinal is not None
-    }
-    return [
-        item
-        for item in missing_numbers
-        if (item.year, item.ordinal) not in blocked_ordinals
-    ]
+    issue_kinds_by_contract_no: dict[tuple[int, int], list[str]] = {}
+    for issue in issues:
+        if issue.year is None or issue.ordinal is None:
+            continue
+        key = (int(issue.year), int(issue.ordinal))
+        kinds = issue_kinds_by_contract_no.setdefault(key, [])
+        kind_value = issue.kind.value
+        if kind_value not in kinds:
+            kinds.append(kind_value)
+
+    annotated: list[MissingContractNumber] = []
+    for item in missing_numbers:
+        kinds = issue_kinds_by_contract_no.get((item.year, item.ordinal), [])
+        note = "Thieu that" if not kinds else f"Co trong vung loi: {', '.join(kinds)}"
+        annotated.append(
+            MissingContractNumber(
+                year=item.year,
+                ordinal=item.ordinal,
+                contract_no=item.contract_no,
+                note=note,
+            )
+        )
+    return annotated
 
 
 def _make_issue(
@@ -388,10 +403,8 @@ def analyze_contract_book(
                 )
             )
 
-    clean_rows = _remove_date_sequence_issues(clean_rows, issues)
-    clean_rows = _remove_same_day_jump_issues(clean_rows, issues)
     clean_rows = sorted(clean_rows, key=lambda row: (row.year, row.ordinal, row.row_index))
-    missing_numbers = _filter_missing_numbers(_build_missing_numbers(clean_rows), issues)
+    missing_numbers = _annotate_missing_numbers(_build_missing_numbers(clean_rows), issues)
     ordinals = [row.ordinal for row in clean_rows]
     duplicate_count = sum(1 for issue in issues if issue.kind == ContractBookIssueKind.DUPLICATE)
 

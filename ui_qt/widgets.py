@@ -40,7 +40,7 @@ def configure_audit_table_scrollbars(table: QTableWidget, *, horizontal: bool = 
 
 
 def set_checkable_upload_rows(table: QTableWidget, rows: list) -> None:
-    headers = ["Chon", "ID", "So", "Trang thai", "File"]
+    headers = ["Chon", "ID", "So", "Trang thai", "Ghi chu", "File"]
     table.clear()
     table.clearContents()
     table.setColumnCount(len(headers))
@@ -53,7 +53,7 @@ def set_checkable_upload_rows(table: QTableWidget, rows: list) -> None:
         check_item.setData(Qt.ItemDataRole.UserRole, int(row.record_id))
         table.setItem(row_index, 0, check_item)
         for column_index, value in enumerate(
-            [row.record_id, row.contract_no, row.status, row.source_file],
+            [row.record_id, row.contract_no, row.status, row.note, row.source_file],
             start=1,
         ):
             table.setItem(row_index, column_index, QTableWidgetItem(str(value)))
