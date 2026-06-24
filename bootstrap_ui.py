@@ -16,6 +16,7 @@ REQUIREMENTS_PATH = BASE_DIR / "requirements.txt"
 SETUP_STAMP_PATH = BASE_DIR / ".ui_setup_state.json"
 UI_RUNNER_PATH = BASE_DIR / "ui_runner.py"
 RUNTIME_DIRS = ("output", "runs", "logs", "downloads", "upload_runs")
+RUNTIME_MODULES = ("docx", "dotenv", "playwright", "openpyxl", "PySide6")
 
 if sys.platform.startswith("win"):
     VENV_PYTHON = BASE_DIR / ".venv" / "Scripts" / "python.exe"
@@ -103,31 +104,34 @@ def get_python_identity(python_exe: Path) -> dict:
 
 
 def probe_runtime(python_exe: Path) -> dict:
-    probe_script = """
-import importlib.util as util
-import json
-import os
-import sys
-
-mods = {name: bool(util.find_spec(name)) for name in ("docx", "dotenv", "playwright", "openpyxl")}
-chromium_ready = False
-if mods["playwright"]:
-    try:
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as pw:
-            chromium_ready = os.path.exists(pw.chromium.executable_path)
-    except Exception:
-        chromium_ready = False
-
-print(json.dumps({
-    "version": list(sys.version_info[:3]),
-    "executable": sys.executable,
-    "prefix": sys.prefix,
-    "base_prefix": getattr(sys, "base_prefix", sys.prefix),
-    "modules": mods,
-    "chromium_ready": chromium_ready,
-}))
-"""
+    probe_script = "\n".join(
+        [
+            "import importlib.util as util",
+            "import json",
+            "import os",
+            "import sys",
+            "",
+            f"runtime_modules = {json.dumps(list(RUNTIME_MODULES))}",
+            "mods = {name: bool(util.find_spec(name)) for name in runtime_modules}",
+            'chromium_ready = False',
+            'if mods["playwright"]:',
+            "    try:",
+            "        from playwright.sync_api import sync_playwright",
+            "        with sync_playwright() as pw:",
+            "            chromium_ready = os.path.exists(pw.chromium.executable_path)",
+            "    except Exception:",
+            "        chromium_ready = False",
+            "",
+            "print(json.dumps({",
+            '    "version": list(sys.version_info[:3]),',
+            '    "executable": sys.executable,',
+            '    "prefix": sys.prefix,',
+            '    "base_prefix": getattr(sys, "base_prefix", sys.prefix),',
+            '    "modules": mods,',
+            '    "chromium_ready": chromium_ready,',
+            "}))",
+        ]
+    )
     completed = run_command(
         [str(python_exe), "-c", probe_script],
         capture_output=True,
@@ -137,7 +141,7 @@ print(json.dumps({
         return {
             "ok": False,
             "version": [0, 0, 0],
-            "modules": {"docx": False, "dotenv": False, "playwright": False, "openpyxl": False},
+            "modules": {name: False for name in RUNTIME_MODULES},
             "chromium_ready": False,
             "probe_error": completed.stderr.strip() or completed.stdout.strip(),
         }
@@ -212,7 +216,7 @@ def should_install_requirements(state: dict, runtime: dict, requirements_mtime_n
     if state.get("requirements_mtime_ns") != requirements_mtime_ns:
         return True
     modules = dict(runtime.get("modules") or {})
-    return not all(modules.get(name, False) for name in ("docx", "dotenv", "playwright", "openpyxl"))
+    return not all(modules.get(name, False) for name in RUNTIME_MODULES)
 
 
 def should_install_browser(state: dict, runtime: dict) -> bool:
@@ -248,7 +252,7 @@ def ensure_dependencies(python_exe: Path) -> None:
         runtime = probe_runtime(python_exe)
 
     modules = dict(runtime.get("modules") or {})
-    missing_modules = [name for name in ("docx", "dotenv", "playwright", "openpyxl") if not modules.get(name)]
+    missing_modules = [name for name in RUNTIME_MODULES if not modules.get(name)]
     if missing_modules:
         probe_error = runtime.get("probe_error")
         detail = f" Missing: {', '.join(missing_modules)}."

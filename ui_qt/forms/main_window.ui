@@ -1,0 +1,334 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>UploadLabMainWindow</class>
+ <widget class="QWidget" name="centralWidget">
+  <layout class="QVBoxLayout" name="mainLayout">
+   <item>
+    <widget class="QTabWidget" name="mainTabs">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <widget class="QWidget" name="excelTab">
+      <attribute name="title">
+       <string>Excel Audit</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="excelLayout">
+       <item>
+        <layout class="QHBoxLayout" name="excelDateLayout">
+         <item>
+          <widget class="QLabel" name="fromDateLabel">
+           <property name="text">
+            <string>Tu ngay</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="fromDateEdit"/>
+         </item>
+         <item>
+          <widget class="QLabel" name="toDateLabel">
+           <property name="text">
+            <string>Den ngay</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="toDateEdit"/>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="excelPathLayout">
+         <item>
+          <widget class="QPushButton" name="configureUploaderButton">
+           <property name="text">
+            <string>Cau hinh</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="downloadExcelButton">
+           <property name="text">
+            <string>Tai Excel</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="excelPathEdit"/>
+         </item>
+         <item>
+          <widget class="QPushButton" name="browseExcelButton">
+           <property name="text">
+            <string>Browse</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="loadExcelButton">
+           <property name="text">
+            <string>Load</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="excelSummaryLabel">
+         <property name="text">
+          <string>Excel=0 | hop_le=0 | thieu=0 | loi=0 | trung=0</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QSplitter" name="excelSplitter">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <widget class="QWidget" name="excelDisplayPanel">
+          <layout class="QVBoxLayout" name="excelDisplayLayout">
+           <item>
+            <widget class="QLabel" name="excelDisplayLabel">
+             <property name="text">
+              <string>Danh sach Excel</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QTableWidget" name="excelDisplayTable">
+             <property name="columnCount">
+              <number>0</number>
+             </property>
+             <property name="rowCount">
+              <number>0</number>
+             </property>
+             <property name="verticalScrollBarPolicy">
+              <enum>Qt::ScrollBarAlwaysOn</enum>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="excelMissingPanel">
+          <layout class="QVBoxLayout" name="excelMissingLayout">
+           <item>
+            <widget class="QLabel" name="excelMissingLabel">
+             <property name="text">
+              <string>So con thieu</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QTableWidget" name="excelMissingTable">
+             <property name="columnCount">
+              <number>0</number>
+             </property>
+             <property name="rowCount">
+              <number>0</number>
+             </property>
+             <property name="verticalScrollBarPolicy">
+              <enum>Qt::ScrollBarAlwaysOn</enum>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="excelIssuePanel">
+          <layout class="QVBoxLayout" name="excelIssueLayout">
+           <item>
+            <widget class="QLabel" name="excelIssueLabel">
+             <property name="text">
+              <string>So loi, trung</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QTableWidget" name="excelIssueTable">
+             <property name="columnCount">
+              <number>0</number>
+             </property>
+             <property name="rowCount">
+              <number>0</number>
+             </property>
+             <property name="verticalScrollBarPolicy">
+              <enum>Qt::ScrollBarAlwaysOn</enum>
+             </property>
+             <property name="horizontalScrollBarPolicy">
+              <enum>Qt::ScrollBarAlwaysOn</enum>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="folderTab">
+      <attribute name="title">
+       <string>Folder Scan &amp; Upload</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="folderLayout">
+       <item>
+        <layout class="QHBoxLayout" name="folderPathLayout">
+         <item>
+          <widget class="QLineEdit" name="folderPathEdit"/>
+         </item>
+         <item>
+          <widget class="QPushButton" name="browseFolderButton">
+           <property name="text">
+            <string>Browse</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="scanFolderButton">
+           <property name="text">
+            <string>Scan</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QProgressBar" name="scanProgressBar">
+         <property name="value">
+          <number>0</number>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="scanSummaryLabel">
+         <property name="text">
+          <string>Chua scan folder.</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTabWidget" name="scanResultTabs">
+         <property name="currentIndex">
+          <number>0</number>
+         </property>
+         <widget class="QWidget" name="folderNumbersTab">
+          <attribute name="title">
+           <string>Cac so trong folder</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="folderNumbersLayout">
+           <item>
+            <layout class="QHBoxLayout" name="folderNumbersToolbarLayout">
+             <item>
+              <widget class="QPushButton" name="selectAllValidButton">
+               <property name="text">
+                <string>Chon tat ca</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="clearValidSelectionButton">
+               <property name="text">
+                <string>Bo chon tat ca</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="filterIssueNumbersButton">
+               <property name="text">
+                <string>Loc so loi</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="selectMissingExcelButton">
+               <property name="text">
+                <string>Chon so thieu trong Excel</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="uploadSelectedButton">
+               <property name="enabled">
+                <bool>false</bool>
+               </property>
+               <property name="text">
+                <string>Upload file da chon</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="continueUploadButton">
+               <property name="enabled">
+                <bool>false</bool>
+               </property>
+               <property name="text">
+                <string>Tiep tuc 10 so tiep theo</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="closeUploadBrowserButton">
+               <property name="enabled">
+                <bool>false</bool>
+               </property>
+               <property name="text">
+                <string>Dong browser upload</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer name="folderNumbersToolbarSpacer">
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QTableWidget" name="folderNumbersTable">
+             <property name="columnCount">
+              <number>0</number>
+             </property>
+             <property name="rowCount">
+              <number>0</number>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="regexTab">
+      <attribute name="title">
+       <string>Regex Review</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="regexLayout">
+       <item>
+        <widget class="QLabel" name="regexPlaceholder">
+         <property name="text">
+          <string>Maintainer-only regex review workflow.</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPlainTextEdit" name="logText">
+     <property name="readOnly">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

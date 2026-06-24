@@ -1,6 +1,4 @@
-"""Tab widgets for main application."""
+from .folder_workflow_tab import FolderWorkflowTab
+from .web_list_tab import WebListTab
 
-from .batch_scan_tab import BatchScanTab
-from .upload_tab import UploadTab
-
-__all__ = ["BatchScanTab", "UploadTab"]
+__all__ = ["FolderWorkflowTab", "WebListTab"]

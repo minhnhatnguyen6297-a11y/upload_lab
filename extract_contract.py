@@ -688,6 +688,7 @@ def _find_tai_san_qsdd_common(text: str) -> str:
         (
             r"(?m)^\s*1\.2\b",
             r"(?m)^\s*dieu\s*2\b",
+            r"(?m)^\s*\d+\.\s*gia chuyen nhuong\b",
             r"(?m)^\s*bang hop dong nay\b",
             r"(?m)^\s*bang van ban nay chung toi xac dinh\b",
             r"(?m)^\s*hai vo chong chung toi cam ket\b",
@@ -1083,6 +1084,18 @@ def _extract_plain_text_person_entries(section: str) -> list[dict]:
     id_re = re.compile(r"(?i)(?:C\u0103n c\u01b0\u1edbc(?:\s+c\u00f4ng d\u00e2n)?|CCCD|CMND)\s*(?:s\u1ed1)?\s*:?\s*(\d+)")
     issue_place_re = re.compile(r"(?i)\bdo\s+(.+?)\s+c\u1ea5p ng\u00e0y", re.DOTALL)
     issue_date_re = re.compile(r"(?i)c\u1ea5p ng\u00e0y\s*(\d{1,2}/\d{1,2}/\d{4})")
+    header_re = re.compile(
+        r"(?i)^\s*(?:[-*]\s*)?(?:(?:\u0110\u1ea1i di\u1ec7n|Dai dien)(?:\s+[^:]{0,80})?:\s*)?"
+        r"(?:\d+\.\s*)?"
+        r"(?:(?:ng\u01b0\u1eddi\s+)?(?:v\u1ee3|ch\u1ed3ng)\s*[\-\u2013]\s*)?"
+        r"(?:v\u00e0\s+(?:v\u1ee3|ch\u1ed3ng)\s+l\u00e0\s+)?"
+        r"(?:ng\u01b0\u1eddi\s+(?:v\u1ee3|ch\u1ed3ng)\s+)?(?:v\u00e0\s+)?(?P<title>\u00f4ng|ong|b\u00e0|ba)\s*:?\s*"
+        r"(?P<name>.+?)(?=\s+(?:Sinh ng\u00e0y|Ng\u00e0y\s+sinh|Sinh ngay|Ngay sinh):|\s+(?:Ch\u1ee9c v\u1ee5|Chuc vu)\s*:|[;]|$)"
+    )
+    birth_re = re.compile(r"(?i)(?:Sinh ng\u00e0y|Ng\u00e0y\s+sinh|Sinh ngay|Ngay sinh):?\s*(\d{1,2}/\d{1,2}/\d{4})")
+    id_re = re.compile(r"(?i)(?:C\u0103n c\u01b0\u1edbc(?:\s+c\u00f4ng d\u00e2n)?|Can cuoc(?:\s+cong dan)?|CCCD|CMND)\s*(?:s\u1ed1|so)?\s*:?\s*(\d+)")
+    issue_place_re = re.compile(r"(?i)\bdo\s+(.+?)\s+(?:c\u1ea5p ng\u00e0y|cap ngay)", re.DOTALL)
+    issue_date_re = re.compile(r"(?i)(?:c\u1ea5p ng\u00e0y|cap ngay)\s*(\d{1,2}/\d{1,2}/\d{4})")
     address_re = re.compile(
         r"(?im)^(?:C\u1ea3 hai \u00f4ng b\u00e0\s+)?(?:C\u00f9ng\s+)?"
         r"(?:(?:N\u01a1i\s+)?(?:th\u01b0\u1eddng tr\u00fa|c\u01b0 tr\u00fa)\s+t\u1ea1i|\u0110\u1ecba ch\u1ec9\s+n\u01a1i\s+c\u01b0\s+tr\u00fa|\u0110\u1ecba ch\u1ec9\s+\u0111\u0103ng\s+k\u00fd)\s*:?\s*(.+)$"
@@ -1106,7 +1119,7 @@ def _extract_plain_text_person_entries(section: str) -> list[dict]:
         chunk = "\n".join(chunk_lines)
         title = match.group("title").strip().lower()
         person = {
-            "gioi_tinh": "\u00d4ng" if title.startswith("\u00f4") else "B\u00e0",
+            "gioi_tinh": "\u00d4ng" if _fold_text(title).startswith("ong") else "B\u00e0",
             "ho_ten": re.sub(r"\s+", " ", match.group("name")).strip(" ;,."),
             "_line_idx": line_idx,
             "raw_text": chunk,
@@ -1125,7 +1138,8 @@ def _extract_plain_text_person_entries(section: str) -> list[dict]:
         name_fold = _fold_text(person["ho_ten"])
         if "hien dang so huu" in name_fold or "tai san la" in name_fold:
             continue
-        if not birth_match and not id_match:
+        role_match = re.search(r"(?i)(?:Ch\u1ee9c v\u1ee5|Chuc vu)\s*:", chunk)
+        if not birth_match and not id_match and not role_match:
             continue
         persons.append(person)
 
@@ -1345,6 +1359,8 @@ def _extract_parties_generic(text: str) -> tuple[dict, dict]:
     ben_a_patterns = (
         r"(?m)^\s*(?:I\.\s*)?B\u00caN CHUY\u1ec2N NH\u01af\u1ee2NG\b",
         r"(?m)^\s*(?:I\.\s*)?B\u00caN TH\u1ebe CH\u1ea4P\b",
+        r"(?m)^\s*\(?A\)?\s*B\u00caN TH\u1ebe CH\u1ea4P\b",
+        r"(?m)^\s*(?:I\.\s*)?BEN THE CHAP\b",
         r"(?m)^\s*(?:I\.\s*)?B\u00caN CHO VAY\b",
         r"(?m)^\s*(?:I\.\s*)?B\u00caN CHO THU\u00ca\b",
         r"(?m)^\s*(?:I\.\s*)?B\u00caN (?:UY|U\u1ef6|\u1ee6Y) QUY\u1ec0N\b",
@@ -1355,6 +1371,8 @@ def _extract_parties_generic(text: str) -> tuple[dict, dict]:
     ben_b_patterns = (
         r"(?m)^\s*(?:II\.\s*)?B\u00caN NH\u1eacN CHUY\u1ec2N NH\u01af\u1ee2NG\b",
         r"(?m)^\s*(?:II\.\s*)?B\u00caN NH\u1eacN TH\u1ebe CH\u1ea4P\b",
+        r"(?m)^\s*\(?B\)?\s*B\u00caN NH\u1eacN TH\u1ebe CH\u1ea4P\b",
+        r"(?m)^\s*(?:II\.\s*)?BEN NHAN THE CHAP\b",
         r"(?m)^\s*(?:II\.\s*)?B\u00caN VAY\b",
         r"(?m)^\s*(?:II\.\s*)?B\u00caN THU\u00ca\b",
         r"(?m)^\s*(?:II\.\s*)?B\u00caN \u0110\u01af\u1ee2C (?:UY|U\u1ef6|\u1ee6Y) QUY\u1ec0N\b",

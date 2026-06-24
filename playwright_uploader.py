@@ -74,6 +74,7 @@ except ImportError:  # pragma: no cover
 
 
 QUEUE_STATUSES = ("extracted", "upload_failed", "prepared_dry_run", "prepared_partial")
+PREPARE_QUEUE_STATUSES = ("extracted", "upload_failed")
 PLAYWRIGHT_MISSING_MESSAGE = (
     "Chua cai Playwright. Scan/Extract van dung duoc. Muon upload, hay chay "
     "'run_ui.bat' de bootstrap tu dong, hoac cai bang "
@@ -115,7 +116,7 @@ class UploaderSettings:
     password: str
     storage_state_path: Path
     browser_channel: str = "chromium"
-    max_prepared_tabs: int = 10
+    max_prepared_tabs: int = 30
     post_prepare_delay_ms: int = 1500
 
 
@@ -179,7 +180,7 @@ def _default_uploader_env_values(base_dir: Path = BASE_DIR) -> dict[str, str]:
         "ND_PASSWORD": "",
         "ND_STORAGE_STATE_PATH": "nd_storage_state.json",
         "ND_BROWSER_CHANNEL": "chromium",
-        "ND_MAX_PREPARED_TABS": "10",
+        "ND_MAX_PREPARED_TABS": "30",
         "ND_POST_PREPARE_DELAY_MS": "1500",
     }
 
@@ -674,7 +675,9 @@ def load_upload_queue(
     *,
     working_dir: Path = BASE_DIR,
     limit: Optional[int] = None,
+    selected_record_ids: set[int] | None = None,
     requester_lookup: Optional[dict[str, str]] = None,
+    statuses: tuple[str, ...] = QUEUE_STATUSES,
 ) -> tuple[dict, list[UploadRecord], int]:
     manifest = load_manifest(manifest_path)
     run_id = str(manifest.get("run_id") or "").strip()
@@ -683,7 +686,7 @@ def load_upload_queue(
 
     conn = connect_registry(working_dir / REGISTRY_DB_PATH.name)
     try:
-        rows = fetch_registry_records_for_run(conn, run_id, statuses=QUEUE_STATUSES)
+        rows = fetch_registry_records_for_run(conn, run_id, statuses=statuses)
     finally:
         conn.close()
 
@@ -717,6 +720,9 @@ def load_upload_queue(
         )
 
     total_pending = len(records)
+    if selected_record_ids is not None:
+        selected = {int(record_id) for record_id in selected_record_ids}
+        records = [record for record in records if int(record.record_id) in selected]
     if limit is not None:
         records = records[:limit]
     return manifest, records, total_pending
@@ -845,13 +851,13 @@ class NamDinhUploaderSession:
         if self._playwright is None:
             self._playwright = sync_playwright().start()
 
-        launch_kwargs = {"headless": False}
+        launch_kwargs = {"headless": False, "args": ["--start-maximized"]}
         if self.settings.browser_channel and self.settings.browser_channel not in {"", "chromium"}:
             launch_kwargs["channel"] = self.settings.browser_channel
 
         self.browser = self._playwright.chromium.launch(**launch_kwargs)
         self.settings.storage_state_path.parent.mkdir(parents=True, exist_ok=True)
-        context_kwargs = {"accept_downloads": True}
+        context_kwargs = {"accept_downloads": True, "viewport": None, "no_viewport": True}
         if self.settings.storage_state_path.exists():
             context_kwargs["storage_state"] = str(self.settings.storage_state_path)
         self.context = self.browser.new_context(**context_kwargs)
@@ -1121,6 +1127,126 @@ class NamDinhUploaderSession:
             self.log(f"[UPLOAD][FIELD] {field_name}: fill_text failed via {source}: {exc}")
             return False
 
+    def _dispatch_control_events(self, locator) -> None:
+        try:
+            locator.evaluate(
+                """(el) => {
+                    const hasValue = "value" in el;
+                    if (hasValue) {
+                        const proto = el instanceof HTMLTextAreaElement
+                            ? HTMLTextAreaElement.prototype
+                            : HTMLInputElement.prototype;
+                        const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
+                        if (descriptor && descriptor.set) {
+                            descriptor.set.call(el, el.value);
+                        }
+                    }
+                    const inputEvent = typeof InputEvent === "function"
+                        ? new InputEvent("input", {
+                            bubbles: true,
+                            inputType: "insertText",
+                            data: hasValue ? el.value : "",
+                        })
+                        : new Event("input", { bubbles: true });
+                    el.dispatchEvent(inputEvent);
+                    el.dispatchEvent(new Event("change", { bubbles: true }));
+                    el.dispatchEvent(new Event("blur", { bubbles: true }));
+                }"""
+            )
+        except Exception:
+            pass
+
+    def _commit_control_events(self, page, locator) -> None:
+        self._dispatch_control_events(locator)
+        try:
+            locator.press("Tab")
+        except Exception:
+            try:
+                page.keyboard.press("Tab")
+            except Exception:
+                pass
+        try:
+            page.wait_for_timeout(200)
+        except Exception:
+            pass
+
+    def _clear_control_like_user(self, page, locator) -> None:
+        try:
+            locator.click()
+            locator.press("Control+A")
+            locator.press("Backspace")
+        except Exception:
+            try:
+                locator.fill("")
+            except Exception:
+                pass
+        self._dispatch_control_events(locator)
+        try:
+            page.wait_for_timeout(100)
+        except Exception:
+            pass
+
+    def _select_dropdown_option(self, page, locator, candidate: str) -> None:
+        option = page.get_by_role("option", name=candidate, exact=False).first
+        if option.count() == 0:
+            option = page.get_by_text(candidate, exact=False).first
+        if option.count() > 0:
+            option.click()
+            return
+        try:
+            locator.press("ArrowDown")
+            page.wait_for_timeout(100)
+        except Exception:
+            pass
+        locator.press("Enter")
+
+    def _safe_field_validation_error(self, page, field_name: str) -> str:
+        try:
+            return self._read_field_validation_error(page, field_name).strip()
+        except Exception:
+            return ""
+
+    def _dropdown_acceptance_state(self, page, field_name: str, expected: str) -> tuple[bool, str, str]:
+        actual = self._read_field_value(page, field_name).strip()
+        validation_error = self._safe_field_validation_error(page, field_name)
+        accepted = field_value_matches(field_name, expected, actual) and not validation_error
+        return accepted, actual, validation_error
+
+    def _prime_contract_name_validation(self, page) -> bool:
+        try:
+            if self._read_field_value(page, "so_cong_chung") or self._read_field_value(page, "nhom_hop_dong"):
+                return False
+        except Exception:
+            return False
+
+        for strategy in SAVE_BUTTON_SELECTORS:
+            button = self._locator_from_strategy(page, strategy)
+            try:
+                if button is not None and button.count() > 0 and button.is_visible():
+                    button.click(timeout=5000)
+                    page.wait_for_timeout(500)
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _type_dropdown_candidate(self, page, locator, candidate: str) -> None:
+        locator.click()
+        self._clear_control_like_user(page, locator)
+        locator.type(candidate, delay=5)
+        page.wait_for_timeout(150)
+        self._select_dropdown_option(page, locator, candidate)
+        self._commit_control_events(page, locator)
+
+    def _retype_contract_name_after_validation(self, page, locator, candidate: str) -> None:
+        locator.click()
+        locator.press("Control+A")
+        locator.press("Backspace")
+        page.wait_for_timeout(100)
+        locator.type(candidate, delay=5)
+        locator.press("Tab")
+        page.wait_for_timeout(500)
+
     def _fill_dropdown(self, page, field_name: str, value: str) -> bool:
         locator, source = self._resolve_control_locator(page, field_name)
         if locator is None or locator.count() == 0:
@@ -1141,15 +1267,17 @@ class NamDinhUploaderSession:
                 try:
                     locator.select_option(label=candidate)
                     page.wait_for_timeout(150)
-                    try:
-                        locator.press("Tab")
-                    except Exception:
-                        pass
-                    actual = self._read_field_value(page, field_name).strip()
-                    if field_value_matches(field_name, candidate, actual):
+                    self._commit_control_events(page, locator)
+                    accepted, actual, validation_error = self._dropdown_acceptance_state(page, field_name, candidate)
+                    if accepted:
                         self.log(f"[UPLOAD][FIELD] {field_name}: select filled via {source} using {candidate!r}")
                         return True
-                    last_error = f"select_not_stuck expected={candidate!r} actual={actual!r}"
+                    if validation_error:
+                        last_error = (
+                            f"select_validation expected={candidate!r} actual={actual!r} error={validation_error!r}"
+                        )
+                    else:
+                        last_error = f"select_not_stuck expected={candidate!r} actual={actual!r}"
                 except Exception as exc:
                     last_error = str(exc)
                     self.log(
@@ -1160,58 +1288,61 @@ class NamDinhUploaderSession:
 
         current_text = self._read_field_value(page, field_name).strip()
         if tag_name != "input" and field_value_matches(field_name, value, current_text):
-            self.log(f"[UPLOAD][FIELD] {field_name}: already set via {source}")
-            return True
+            current_validation_error = self._safe_field_validation_error(page, field_name)
+            if not current_validation_error:
+                self.log(f"[UPLOAD][FIELD] {field_name}: already set via {source}")
+                return True
 
         last_error = ""
         for candidate in candidates:
-            try:
+            for attempt in range(2):
                 try:
-                    page.keyboard.press("Escape")
-                    page.wait_for_timeout(100)
-                except Exception:
-                    pass
+                    try:
+                        page.keyboard.press("Escape")
+                        page.wait_for_timeout(100)
+                    except Exception:
+                        pass
 
-                locator.click()
-                locator.fill("")
-                locator.type(candidate, delay=25)
-            except Exception:
-                try:
-                    locator.click()
-                    locator.fill(candidate)
+                    self._type_dropdown_candidate(page, locator, candidate)
                 except Exception as exc:
-                    last_error = str(exc)
+                    try:
+                        locator.click()
+                        locator.fill(candidate)
+                    except Exception as fallback_exc:
+                        last_error = str(fallback_exc)
+                        self.log(
+                            f"[UPLOAD][FIELD] {field_name}: fill_dropdown typing failed via {source} with {candidate!r}: {exc}"
+                        )
+                        continue
+
+                accepted, actual, validation_error = self._dropdown_acceptance_state(page, field_name, candidate)
+                if accepted:
+                    if field_name == "ten_hop_dong" and attempt == 0 and self._prime_contract_name_validation(page):
+                        self._retype_contract_name_after_validation(page, locator, candidate)
+                        accepted, actual, validation_error = self._dropdown_acceptance_state(
+                            page,
+                            field_name,
+                            candidate,
+                        )
+                        if not accepted:
+                            last_error = (
+                                f"validation_after_prime expected={candidate!r} actual={actual!r} "
+                                f"error={validation_error!r}"
+                            )
+                            continue
+                    retry_text = " after retry" if attempt else ""
                     self.log(
-                        f"[UPLOAD][FIELD] {field_name}: fill_dropdown typing failed via {source} with {candidate!r}: {exc}"
+                        f"[UPLOAD][FIELD] {field_name}: dropdown filled via {source} using {candidate!r}{retry_text}"
                     )
-                    continue
+                    return True
 
-            page.wait_for_timeout(300)
-            option = page.get_by_role("option", name=candidate, exact=False).first
-            if option.count() == 0:
-                option = page.get_by_text(candidate, exact=False).first
-            if option.count() > 0:
-                option.click()
-            else:
-                locator.press("Enter")
-            try:
-                locator.press("Tab")
-            except Exception:
-                try:
-                    page.keyboard.press("Tab")
-                except Exception:
-                    pass
-            page.wait_for_timeout(200)
-
-            actual = self._read_field_value(page, field_name).strip()
-            if field_value_matches(field_name, candidate, actual):
-                self.log(f"[UPLOAD][FIELD] {field_name}: dropdown filled via {source} using {candidate!r}")
-                return True
-
-            last_error = f"value_not_stuck expected={candidate!r} actual={actual!r}"
-            self.log(
-                f"[UPLOAD][FIELD] {field_name}: dropdown candidate {candidate!r} not accepted via {source}; actual={actual!r}"
-            )
+                if validation_error:
+                    last_error = f"validation expected={candidate!r} actual={actual!r} error={validation_error!r}"
+                else:
+                    last_error = f"value_not_stuck expected={candidate!r} actual={actual!r}"
+                self.log(
+                    f"[UPLOAD][FIELD] {field_name}: dropdown candidate {candidate!r} not accepted via {source}; actual={actual!r}; validation={validation_error!r}"
+                )
 
         self.log(f"[UPLOAD][FIELD] {field_name}: dropdown fill failed via {source}: {last_error}")
         return False
@@ -1314,12 +1445,18 @@ class NamDinhUploaderSession:
             try:
                 if scope.count() == 0:
                     continue
-                texts = scope.locator(
-                    "xpath=.//*[self::small or self::p or self::div or self::span][normalize-space()]"
-                ).all_text_contents()
+                candidates = scope.locator("xpath=.//*[self::small or self::p][normalize-space()]")
+                count = candidates.count()
             except Exception:
                 continue
-            for text in texts:
+            for index in range(count):
+                candidate = candidates.nth(index)
+                try:
+                    if not candidate.is_visible():
+                        continue
+                    text = candidate.text_content()
+                except Exception:
+                    continue
                 normalized = _fold_value(text)
                 if not normalized or normalized in seen:
                     continue
@@ -1421,6 +1558,7 @@ class NamDinhUploaderSession:
         manifest_path: Path | str,
         stop_event,
         *,
+        selected_record_ids: set[int] | None = None,
         exclude_contract_nos: Optional[set[str]] = None,
         requester_sheet_url: str = "",
         progress_callback: Optional[Callable[[dict], None]] = None,
@@ -1446,7 +1584,9 @@ class NamDinhUploaderSession:
         manifest, records, total_pending = load_upload_queue(
             manifest_path,
             working_dir=self.working_dir,
+            selected_record_ids=selected_record_ids,
             requester_lookup=requester_lookup,
+            statuses=PREPARE_QUEUE_STATUSES,
         )
         run_id = str(manifest["run_id"])
         filtered_records, duplicate_records = split_records_by_existing_contract_nos(
