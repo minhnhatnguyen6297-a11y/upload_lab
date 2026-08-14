@@ -17,18 +17,19 @@ $filesToCopy = @(
     "bootstrap_ui.py",
     "build_standalone_release.ps1",
     "extract_contract.py",
-    "HUONG_DAN.md",
     "install_python_windows.ps1",
     "playwright_uploader.py",
     "README.md",
     "review_regex_samples.py",
     "requirements.txt",
+    "run.bat",
     "run_ui.bat",
     "ui_runner.py",
     "uploader_selectors.py"
 )
 
 $directoriesToCopy = @(
+    "docs",
     "ui",
     "ui_qt"
 )

@@ -1218,34 +1218,6 @@ def _extract_section_between_patterns(
     return str(text[start_idx:end_idx]).strip()
 
 
-def _extract_plain_text_parties(text: str) -> tuple[dict, dict]:
-    ben_a_patterns = (
-        r"\b(?:I\.\s*)?B\u00caN CHUY\u1ec2N NH\u01af\u1ee2NG\b",
-        r"\b(?:I\.\s*)?B\u00caN TH\u1ebe CH\u1ea4P\b",
-        r"\bB\u00caN A\b",
-    )
-    ben_b_patterns = (
-        r"\b(?:II\.\s*)?B\u00caN NH\u1eacN CHUY\u1ec2N NH\u01af\u1ee2NG\b",
-        r"\b(?:II\.\s*)?B\u00caN NH\u1eacN TH\u1ebe CH\u1ea4P\b",
-        r"\bB\u00caN B\b",
-    )
-    end_patterns = (
-        r"\bC\u00e1c b\u00ean \u0111\u00e3 t\u1ef1 nguy\u1ec7n\b",
-        r"\bHai b\u00ean t\u1ef1 nguy\u1ec7n\b",
-        r"\bB\u1eb1ng H\u1ee3p \u0111\u1ed3ng n\u00e0y\b",
-        r"\b\u0110I\u1ec0U\s*1\b",
-        r"\bL\u1edcI CH\u1ee8NG\b",
-    )
-
-    idx_a = _find_first_pattern_index(text, ben_a_patterns)
-    idx_b = _find_first_pattern_index(text, ben_b_patterns, start=max(idx_a, 0))
-    idx_end = _find_first_pattern_index(text, end_patterns, start=max(idx_b, 0)) if idx_b >= 0 else -1
-
-    ben_a_section = text[idx_a:idx_b] if idx_a >= 0 and idx_b >= 0 else ""
-    ben_b_section = text[idx_b:idx_end] if idx_b >= 0 and idx_end > idx_b else text[idx_b:] if idx_b >= 0 else ""
-
-    return _extract_party_data(ben_a_section), _extract_party_data(ben_b_section)
-
 
 def _find_first_pattern_match_generic(text: str, patterns: Iterable[str], *, start: int = 0):
     haystack = text[start:]
@@ -1494,78 +1466,6 @@ def _build_payload_generic(filepath, text: str, scan_result: dict, *, extract_mo
         },
     }
 
-
-def _build_payload(filepath, text: str, scan_result: dict, ben_a: dict, ben_b: dict, *, extract_mode: str) -> dict:
-    doc_kind, ten_hd = _detect_document_kind_and_title(text, file_name=Path(filepath).name)
-    tai_san = _find_tai_san_by_kind(text, doc_kind)
-    if doc_kind == DOC_KIND_MORTGAGE:
-        ten_hd = _canonical_mortgage_title(text)
-    so_cong_chung = _normalize_web_contract_no(find_so_cong_chung(text) or scan_result.get("contract_no", ""))
-    if doc_kind == DOC_KIND_ASSET_COMMITMENT and ben_a.get("nguoi"):
-        nguoi_yeu_cau_party = ben_a
-    else:
-        nguoi_yeu_cau_party = ben_b if ben_b.get("nguoi") else ben_a
-    web_form = {
-        "ten_hop_dong": ten_hd,
-        "ngay_cong_chung": find_ngay_cong_chung(text),
-        "so_cong_chung": so_cong_chung,
-        "nhom_hop_dong": guess_nhom_hd(ten_hd),
-        "loai_tai_san": guess_loai_tai_san(tai_san, ten_hd),
-        "cong_chung_vien": find_ccv(text),
-        "thu_ky": DEFAULT_THU_KY,
-        "nguoi_yeu_cau": fmt_nguoi_yeu_cau(nguoi_yeu_cau_party),
-        "duong_su": _fmt_duong_su_by_kind(doc_kind, ben_a, ben_b),
-        "tai_san": tai_san,
-    }
-    file_goc = os.path.abspath(filepath)
-    missing_fields = get_missing_web_form_fields(web_form, file_hop_dong=file_goc)
-    return {
-        "web_form": web_form,
-        "raw": {
-            "ben_a": ben_a,
-            "ben_b": ben_b,
-            "file_goc": file_goc,
-            "scan_contract_no": scan_result.get("contract_no", ""),
-            "scan_reason": scan_result.get("reason", ""),
-            "document_kind": doc_kind,
-            "extract_mode": extract_mode,
-            "extract_is_partial": bool(missing_fields),
-            "missing_web_form_fields": missing_fields,
-        },
-    }
-
-
-def _extract_structured_text_payload(filepath, text: str, scan_result: dict) -> dict:
-    idx_a = text.find("BÃŠN CHUYá»‚N NHÆ¯á»¢NG")
-    idx_b = text.find("BÃŠN NHáº¬N CHUYá»‚N NHÆ¯á»¢NG")
-    idx_end = text.find("Hai bÃªn tá»± nguyá»‡n")
-
-    ben_a_section = text[idx_a:idx_b] if idx_a >= 0 and idx_b >= 0 else ""
-    ben_b_section = text[idx_b:idx_end] if idx_b >= 0 and idx_end >= 0 else ""
-
-    ben_a = {"nguoi": find_persons(ben_a_section), "dia_chi": find_dia_chi(ben_a_section)}
-    ben_b = {"nguoi": find_persons(ben_b_section), "dia_chi": find_dia_chi(ben_b_section)}
-    return _build_payload(filepath, text, scan_result, ben_a, ben_b, extract_mode="structured_docx")
-
-
-def _extract_plain_text_payload(filepath, text: str, scan_result: dict) -> dict:
-    ben_a, ben_b = _extract_plain_text_parties(text)
-    return _build_payload(filepath, text, scan_result, ben_a, ben_b, extract_mode="plain_text_doc")
-
-
-def _extract_structured_text_payload_v2(filepath, text: str, scan_result: dict) -> dict:
-    idx_a = text.find("B\u00caN CHUY\u1ec2N NH\u01af\u1ee2NG")
-    idx_b = text.find("B\u00caN NH\u1eacN CHUY\u1ec2N NH\u01af\u1ee2NG")
-    idx_end = text.find("Hai b\u00ean t\u1ef1 nguy\u1ec7n")
-
-    ben_a_section = text[idx_a:idx_b] if idx_a >= 0 and idx_b >= 0 else ""
-    ben_b_section = text[idx_b:idx_end] if idx_b >= 0 and idx_end >= 0 else ""
-
-    ben_a = {"nguoi": find_persons(ben_a_section), "dia_chi": find_dia_chi(ben_a_section)}
-    ben_b = {"nguoi": find_persons(ben_b_section), "dia_chi": find_dia_chi(ben_b_section)}
-    return _build_payload(filepath, text, scan_result, ben_a, ben_b, extract_mode="structured_docx")
-
-
 # ============================================================
 # HAM CHINH
 # ============================================================
@@ -1585,45 +1485,6 @@ def extract(filepath, *, scan_result: dict | None = None, preloaded_text: str | 
     if use_ifilter_for_doc:
         return _build_payload_generic(path, text, scan_result, extract_mode="plain_text_doc")
     return _build_payload_generic(path, text, scan_result, extract_mode="structured_docx")
-
-    text = read_docx(filepath)
-    scan_result = scan_docx_for_contract_no(filepath)
-
-    idx_a = text.find("BÊN CHUYỂN NHƯỢNG")
-    idx_b = text.find("BÊN NHẬN CHUYỂN NHƯỢNG")
-    idx_end = text.find("Hai bên tự nguyện")
-
-    ben_a_section = text[idx_a:idx_b] if idx_a >= 0 and idx_b >= 0 else ""
-    ben_b_section = text[idx_b:idx_end] if idx_b >= 0 and idx_end >= 0 else ""
-
-    ben_a = {"nguoi": find_persons(ben_a_section), "dia_chi": find_dia_chi(ben_a_section)}
-    ben_b = {"nguoi": find_persons(ben_b_section), "dia_chi": find_dia_chi(ben_b_section)}
-
-    ten_hd = find_ten_hop_dong(text)
-    tai_san = find_tai_san(text)
-    so_cong_chung = find_so_cong_chung(text) or scan_result.get("contract_no", "")
-
-    return {
-        "web_form": {
-            "ten_hop_dong": ten_hd,
-            "ngay_cong_chung": find_ngay_cong_chung(text),
-            "so_cong_chung": so_cong_chung,
-            "nhom_hop_dong": guess_nhom_hd(ten_hd),
-            "loai_tai_san": guess_loai_tai_san(tai_san, ten_hd),
-            "cong_chung_vien": find_ccv(text),
-            "thu_ky": DEFAULT_THU_KY,
-            "nguoi_yeu_cau": fmt_nguoi_yeu_cau(ben_b),
-            "duong_su": fmt_duong_su(ben_a, ben_b),
-            "tai_san": tai_san,
-        },
-        "raw": {
-            "ben_a": ben_a,
-            "ben_b": ben_b,
-            "file_goc": os.path.abspath(filepath),
-            "scan_contract_no": scan_result.get("contract_no", ""),
-            "scan_reason": scan_result.get("reason", ""),
-        },
-    }
 
 
 def main():
