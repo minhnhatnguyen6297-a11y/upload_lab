@@ -69,8 +69,15 @@ def load_queue_state(
     *,
     export_path: Path | None = None,
     working_dir: Path = BASE_DIR,
+    cong_chung_vien: str | None = None,
+    thu_ky: str | None = None,
 ) -> QueueState:
-    manifest, records, total_pending = load_upload_queue(manifest_path, working_dir=working_dir)
+    manifest, records, total_pending = load_upload_queue(
+        manifest_path,
+        working_dir=working_dir,
+        cong_chung_vien=cong_chung_vien,
+        thu_ky=thu_ky,
+    )
     existing_contract_nos: set[str] = set()
     if export_path and export_path.exists():
         existing_contract_nos = read_exported_contract_numbers(export_path)
@@ -89,11 +96,15 @@ def load_selected_queue_records(
     selected_record_ids: set[int],
     *,
     working_dir: Path = BASE_DIR,
+    cong_chung_vien: str | None = None,
+    thu_ky: str | None = None,
 ):
     return load_upload_queue(
         manifest_path,
         working_dir=working_dir,
         selected_record_ids=selected_record_ids,
+        cong_chung_vien=cong_chung_vien,
+        thu_ky=thu_ky,
     )
 
 

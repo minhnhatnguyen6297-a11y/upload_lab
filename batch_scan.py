@@ -25,7 +25,7 @@ BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
 RUNS_DIR = BASE_DIR / "runs"
 REGISTRY_DB_PATH = BASE_DIR / "registry.sqlite3"
-MAX_SCAN_DEPTH = 3
+MAX_SCAN_DEPTH: int | None = None
 RETRYABLE_STATUSES = {"extract_failed", "upload_failed"}
 UNSUPPORTED_SUFFIXES = {".xls", ".xlsx"}
 SKIP_TEMP_PREFIX = "~$"
@@ -433,11 +433,11 @@ def collect_batch_files(
     folder_root: Path,
     manifest: dict,
     *,
-    max_depth: int = MAX_SCAN_DEPTH,
+    max_depth: int | None = MAX_SCAN_DEPTH,
 ) -> tuple[list[Path], list[Path]]:
     supported_files: list[Path] = []
     unsupported_files: list[Path] = []
-    effective_max_depth = max(1, int(max_depth))
+    effective_max_depth = None if max_depth is None else max(1, int(max_depth))
 
     for current_root, dirs, files in os.walk(str(folder_root)):
         current_path = Path(current_root)
@@ -445,7 +445,7 @@ def collect_batch_files(
         depth = len(relative_dir.parts)
         if depth > 0:
             manifest["stats"]["total_subfolders"] += 1
-        if depth >= effective_max_depth:
+        if effective_max_depth is not None and depth >= effective_max_depth:
             dirs[:] = []
 
         for name in files:
@@ -533,7 +533,7 @@ def run_batch_scan(
     full_rescan: bool = False,
     working_dir: Optional[Path] = None,
     progress_callback=None,
-    max_depth: int = MAX_SCAN_DEPTH,
+    max_depth: int | None = MAX_SCAN_DEPTH,
 ) -> dict:
     folder_root = Path(folder_root)
     if not folder_root.exists() or not folder_root.is_dir():

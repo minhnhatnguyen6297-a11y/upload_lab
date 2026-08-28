@@ -397,6 +397,77 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
         self.assertIn("Nguyễn Thị Hoa", form_data["nguoi_yeu_cau"])
         self.assertIn("Can cuoc so:", form_data["nguoi_yeu_cau"])
 
+    def test_build_upload_form_data_overrides_notary_and_secretary(self):
+        payload = {
+            "web_form": {
+                "cong_chung_vien": "CCV trong JSON",
+                "thu_ky": "Thu ky trong JSON",
+            },
+            "raw": {},
+        }
+
+        form_data = build_upload_form_data(
+            payload,
+            cong_chung_vien="CCV da chon",
+            thu_ky="Thu ky da chon",
+        )
+
+        self.assertEqual(form_data["cong_chung_vien"], "CCV da chon")
+        self.assertEqual(form_data["thu_ky"], "Thu ky da chon")
+
+    def test_staff_dropdown_verification_requires_exact_label(self):
+        from playwright_uploader import field_value_matches
+
+        self.assertFalse(field_value_matches("cong_chung_vien", "Nguyen Van A", "Nguyen Van An"))
+        self.assertFalse(field_value_matches("thu_ky", "Minh", "Nguyen Nhat Minh"))
+
+    def test_fetch_staff_options_reads_native_selects_and_writes_cache(self):
+        class FakeOptions:
+            def __init__(self, labels):
+                self.labels = labels
+
+            def all_text_contents(self):
+                return list(self.labels)
+
+        class FakeSelect:
+            def __init__(self, labels):
+                self.labels = labels
+
+            def count(self):
+                return 1
+
+            def evaluate(self, _script):
+                return "select"
+
+            def locator(self, selector):
+                self.assert_selector = selector
+                return FakeOptions(self.labels)
+
+        page = _FakePreparePage()
+        context = SimpleNamespace(new_page=lambda: page)
+        session = NamDinhUploaderSession(
+            load_uploader_settings(self.workdir),
+            working_dir=self.workdir,
+            log_callback=lambda _msg: None,
+        )
+        session.context = context
+        controls = {
+            "cong_chung_vien": FakeSelect(["", "Phạm Minh Chi", "CCV B"]),
+            "thu_ky": FakeSelect(["-- Chọn --", "Nguyễn Nhật Minh", "Thư ký B"]),
+        }
+
+        with patch.object(session, "ensure_authenticated"), patch.object(
+            session,
+            "_resolve_control_locator",
+            side_effect=lambda _page, field: (controls[field], "mock"),
+        ):
+            options = session.fetch_staff_options()
+
+        self.assertEqual(options["cong_chung_vien"], ["Phạm Minh Chi", "CCV B"])
+        self.assertEqual(options["thu_ky"], ["Nguyễn Nhật Minh", "Thư ký B"])
+        self.assertEqual(NamDinhUploaderSession.load_staff_options_cache(self.workdir), options)
+        self.assertEqual(page.close_calls, 1)
+
     def test_read_exported_contract_numbers_reads_column_a(self):
         export_path = self.root / "So_cong_chung.xlsx"
         workbook = Workbook()

@@ -90,6 +90,7 @@ FORM_SELECTORS = {
         "strategies": [
             {"type": "css", "value": r"#hopdong\.congchungvien\.id"},
         ],
+        "verify": True,
     },
     "thu_ky": {
         "kind": "dropdown",
@@ -97,6 +98,7 @@ FORM_SELECTORS = {
         "strategies": [
             {"type": "css", "value": r"#hopdong\.thuky"},
         ],
+        "verify": True,
     },
     "nguoi_yeu_cau": {
         "kind": "editor",
@@ -168,4 +170,11 @@ UPLOAD_SUCCESS_MARKERS = [
     {"type": "text_dynamic"},
 ]
 
-VERIFY_FIELDS = ["ten_hop_dong", "so_cong_chung", "nhom_hop_dong", "loai_tai_san"]
+VERIFY_FIELDS = [
+    "ten_hop_dong",
+    "so_cong_chung",
+    "nhom_hop_dong",
+    "loai_tai_san",
+    "cong_chung_vien",
+    "thu_ky",
+]

@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
-import threading
 from pathlib import Path
 from typing import cast
 
-from PySide6.QtCore import QFile, QThread, Qt
+from PySide6.QtCore import QFile, QThread, Qt, Signal
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QFileDialog,
     QDialog,
     QFormLayout,
@@ -35,7 +35,6 @@ from playwright_uploader import (
     ensure_uploader_env_file,
     get_uploader_setup_status,
     load_upload_queue,
-    load_uploader_settings,
     probe_playwright_runtime,
     read_uploader_env,
     save_uploader_env,
@@ -50,13 +49,20 @@ from ui_qt.widgets import (
     set_checkable_upload_rows,
     set_table_rows,
 )
-from ui_qt.workers import FolderScanWorker
+from ui_qt.workers import FolderScanWorker, UploadWorker
 
 EXCEL_DISPLAY_HEADERS = ["Ngay", "So cong chung", "Dong Excel"]
 EXCEL_MISSING_HEADERS = ["So thieu", "Nam", "STT", "Chu thich"]
 EXCEL_ISSUE_HEADERS = ["Loai loi", "Dong", "Ngay", "So goc", "So chuan", "Ly do"]
 
 class UploadLabMainWindow(QMainWindow):
+    # The command carries threading.Event and set instances, which cannot be
+    # safely marshalled as a Qt QVariantMap across threads.
+    prepareUploadRequested = Signal(object)
+    refreshStaffOptionsRequested = Signal()
+    reloadStaffOptionsRequested = Signal()
+    closeUploadRequested = Signal()
+
     def __init__(self, *, working_dir: Path = BASE_DIR):
         super().__init__()
         self.working_dir = Path(working_dir)
@@ -90,14 +96,23 @@ class UploadLabMainWindow(QMainWindow):
         self.uploadSelectedButton: QPushButton | None = None
         self.continueUploadButton: QPushButton | None = None
         self.closeUploadBrowserButton: QPushButton | None = None
+        self.notaryComboBox: QComboBox | None = None
+        self.secretaryComboBox: QComboBox | None = None
+        self.refreshStaffOptionsButton: QPushButton | None = None
+        self.uploadProgressBar: QProgressBar | None = None
+        self.uploadProgressLabel: QLabel | None = None
+        self.stopUploadButton: QPushButton | None = None
         self.logText: QPlainTextEdit | None = None
         self.folderNumberSelection = UploadSelection()
         self.folderScanRows: list[FolderScanRow] = []
         self.missingInExcelRecordIds: set[int] = set()
         self.issueRecordIds: set[int] = set()
         self.issueFilterPreviousSelection: set[int] | None = None
-        self.uploadSession: NamDinhUploaderSession | None = None
-        self.uploadStopEvent: threading.Event | None = None
+        self.uploadThread: QThread | None = None
+        self.uploadWorker: UploadWorker | None = None
+        self.uploadSessionActive = False
+        self.uploadBusy = False
+        self.uploadCloseRequested = False
         self.activeUploadSelectedRecordIds: set[int] = set()
         self.uploadRemainingCount = 0
         self.playwright_ready = False
@@ -195,7 +210,17 @@ class UploadLabMainWindow(QMainWindow):
         self.uploadSelectedButton = cast(QPushButton, self.ui.findChild(QPushButton, "uploadSelectedButton"))
         self.continueUploadButton = cast(QPushButton, self.ui.findChild(QPushButton, "continueUploadButton"))
         self.closeUploadBrowserButton = cast(QPushButton, self.ui.findChild(QPushButton, "closeUploadBrowserButton"))
+        self.notaryComboBox = cast(QComboBox, self.ui.findChild(QComboBox, "notaryComboBox"))
+        self.secretaryComboBox = cast(QComboBox, self.ui.findChild(QComboBox, "secretaryComboBox"))
+        self.refreshStaffOptionsButton = cast(
+            QPushButton, self.ui.findChild(QPushButton, "refreshStaffOptionsButton")
+        )
+        self.uploadProgressBar = cast(QProgressBar, self.ui.findChild(QProgressBar, "uploadProgressBar"))
+        self.uploadProgressLabel = cast(QLabel, self.ui.findChild(QLabel, "uploadProgressLabel"))
+        self.stopUploadButton = cast(QPushButton, self.ui.findChild(QPushButton, "stopUploadButton"))
         self.logText = cast(QPlainTextEdit, self.ui.findChild(QPlainTextEdit, "logText"))
+
+        self._apply_staff_options(NamDinhUploaderSession.load_staff_options_cache(self.working_dir))
 
         if self.browseFolderButton is not None:
             self.browseFolderButton.clicked.connect(self.browse_folder)
@@ -215,6 +240,10 @@ class UploadLabMainWindow(QMainWindow):
             self.continueUploadButton.clicked.connect(self.continue_upload_selected)
         if self.closeUploadBrowserButton is not None:
             self.closeUploadBrowserButton.clicked.connect(self.close_upload_browser)
+        if self.refreshStaffOptionsButton is not None:
+            self.refreshStaffOptionsButton.clicked.connect(self.refresh_staff_options)
+        if self.stopUploadButton is not None:
+            self.stopUploadButton.clicked.connect(self.stop_upload)
 
         if self.folderNumbersTable is not None:
             self.folderNumbersTable.cellDoubleClicked.connect(
@@ -336,18 +365,11 @@ class UploadLabMainWindow(QMainWindow):
 
         def save_and_login() -> None:
             save_only()
-            session = NamDinhUploaderSession(
-                load_uploader_settings(self.working_dir),
-                working_dir=self.working_dir,
-                log_callback=self._log_message,
-            )
-            try:
-                session.ensure_authenticated()
-            finally:
-                session.close()
-            self.refresh_runtime_status()
-            status_label.setText(self.runtime_summary())
-            self._log_message("[SETUP] Dang nhap xong.")
+            dialog.accept()
+            self.uploadBusy = True
+            self._ensure_upload_worker()
+            self._sync_folder_upload_controls()
+            self.reloadStaffOptionsRequested.emit()
 
         save_button = QPushButton("Luu", dialog)
         save_button.clicked.connect(save_only)
@@ -563,28 +585,37 @@ class UploadLabMainWindow(QMainWindow):
         selected_count = len(self.folderNumberSelection.selected_record_ids())
         has_rows = bool(self.folderNumberSelection.row_ids)
         if self.selectAllValidButton is not None:
-            self.selectAllValidButton.setEnabled(has_rows)
+            self.selectAllValidButton.setEnabled(not self.uploadBusy and has_rows)
         if self.clearValidSelectionButton is not None:
-            self.clearValidSelectionButton.setEnabled(has_rows)
+            self.clearValidSelectionButton.setEnabled(not self.uploadBusy and has_rows)
         if self.filterIssueNumbersButton is not None:
-            self.filterIssueNumbersButton.setEnabled(has_rows and bool(self.issueRecordIds))
+            self.filterIssueNumbersButton.setEnabled(not self.uploadBusy and has_rows and bool(self.issueRecordIds))
             self.filterIssueNumbersButton.setText(
                 "Hoan tac loc so loi" if self.issueFilterPreviousSelection is not None else "Loc so loi"
             )
         if self.selectMissingExcelButton is not None:
-            self.selectMissingExcelButton.setEnabled(has_rows)
+            self.selectMissingExcelButton.setEnabled(not self.uploadBusy and has_rows)
         if self.uploadSelectedButton is not None:
-            self.uploadSelectedButton.setEnabled(has_rows and selected_count > 0)
+            self.uploadSelectedButton.setEnabled(not self.uploadBusy and has_rows and selected_count > 0)
             self.uploadSelectedButton.setText(f"Upload file da chon ({selected_count})")
         if self.continueUploadButton is not None:
             self.continueUploadButton.setEnabled(
-                self.uploadSession is not None
+                not self.uploadBusy
+                and self.uploadSessionActive
                 and self.uploadRemainingCount > 0
                 and bool(self.activeUploadSelectedRecordIds)
                 and self.current_manifest_path is not None
             )
         if self.closeUploadBrowserButton is not None:
-            self.closeUploadBrowserButton.setEnabled(self.uploadSession is not None)
+            self.closeUploadBrowserButton.setEnabled(not self.uploadBusy and self.uploadSessionActive)
+        if self.refreshStaffOptionsButton is not None:
+            self.refreshStaffOptionsButton.setEnabled(not self.uploadBusy)
+        if self.notaryComboBox is not None:
+            self.notaryComboBox.setEnabled(not self.uploadBusy)
+        if self.secretaryComboBox is not None:
+            self.secretaryComboBox.setEnabled(not self.uploadBusy)
+        if self.stopUploadButton is not None:
+            self.stopUploadButton.setEnabled(self.uploadBusy)
 
     def _folder_rows_for_current_selection(self) -> list[FolderScanRow]:
         selected_ids = set(self.folderNumberSelection.selected_record_ids())
@@ -670,34 +701,54 @@ class UploadLabMainWindow(QMainWindow):
 
         self._prepare_upload_chunk(set(self.activeUploadSelectedRecordIds))
 
-    def _ensure_upload_session(self) -> NamDinhUploaderSession:
-        if self.uploadSession is None:
-            self.uploadSession = NamDinhUploaderSession(
-                load_uploader_settings(self.working_dir),
-                working_dir=self.working_dir,
-                log_callback=self._log_message,
-            )
-        return self.uploadSession
+    def _ensure_upload_worker(self) -> UploadWorker:
+        if self.uploadWorker is not None:
+            return self.uploadWorker
+        worker = UploadWorker(self.working_dir)
+        thread = QThread(self)
+        worker.moveToThread(thread)
+        self.prepareUploadRequested.connect(worker.prepare)
+        self.refreshStaffOptionsRequested.connect(worker.refresh_options)
+        self.reloadStaffOptionsRequested.connect(worker.reload_options)
+        self.closeUploadRequested.connect(worker.close_session)
+        worker.prepared.connect(self._handle_upload_prepared)
+        worker.optionsRefreshed.connect(self._handle_staff_options_refreshed)
+        worker.failed.connect(self._handle_upload_failed)
+        worker.progress.connect(self._handle_upload_progress)
+        worker.log.connect(self._log_message)
+        worker.closed.connect(self._handle_upload_closed)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._handle_upload_thread_finished)
+        self.uploadWorker = worker
+        self.uploadThread = thread
+        thread.start()
+        return worker
 
     def _prepare_upload_chunk(self, selected_ids: set[int]) -> None:
         if self.current_manifest_path is None:
             return
 
-        self.uploadStopEvent = threading.Event()
-        session = self._ensure_upload_session()
-        try:
-            summary = session.prepare_manifest(
-                self.current_manifest_path,
-                self.uploadStopEvent,
-                selected_record_ids=selected_ids,
-                exclude_contract_nos=set(),
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Upload Lab", str(exc))
-            self._sync_folder_upload_controls()
-            return
-
         self.activeUploadSelectedRecordIds = set(selected_ids)
+        self.uploadBusy = True
+        self.uploadProgressBar.setValue(0) if self.uploadProgressBar is not None else None
+        if self.uploadProgressLabel is not None:
+            self.uploadProgressLabel.setText("Dang khoi tao upload...")
+        self._ensure_upload_worker()
+        self._sync_folder_upload_controls()
+        self.prepareUploadRequested.emit(
+            {
+                "manifest_path": str(self.current_manifest_path),
+                "selected_record_ids": sorted(selected_ids),
+                "exclude_contract_nos": [],
+                "cong_chung_vien": self._selected_staff_value(self.notaryComboBox, "Phạm Minh Chi"),
+                "thu_ky": self._selected_staff_value(self.secretaryComboBox, "Nguyễn Nhật Minh"),
+            }
+        )
+
+    def _handle_upload_prepared(self, summary: dict) -> None:
+        self.uploadBusy = False
+        self.uploadSessionActive = True
         self.uploadRemainingCount = int(summary.get("remaining") or 0)
         self._log_message(
             f"[UPLOAD] prepared={summary.get('prepared_count', 0)} | remaining={self.uploadRemainingCount}"
@@ -705,14 +756,83 @@ class UploadLabMainWindow(QMainWindow):
         self._refresh_scan_results_from_manifest()
         self._sync_folder_upload_controls()
 
-    def close_upload_browser(self) -> None:
-        if self.uploadSession is not None:
-            self.uploadSession.close()
-            self.uploadSession = None
-        self.uploadStopEvent = None
+    def _handle_upload_progress(self, snapshot: dict) -> None:
+        prepared = int(snapshot.get("prepared_count") or 0)
+        total = int(snapshot.get("total_pending") or snapshot.get("filtered_pending") or 0)
+        if self.uploadProgressBar is not None:
+            self.uploadProgressBar.setValue(int(prepared * 100 / total) if total else 0)
+        if self.uploadProgressLabel is not None:
+            contract_no = str(snapshot.get("contract_no") or "")
+            self.uploadProgressLabel.setText(
+                f"{snapshot.get('event', 'upload')}: {prepared}/{total}" + (f" | {contract_no}" if contract_no else "")
+            )
+
+    def _handle_upload_failed(self, operation: str, error_message: str) -> None:
+        self.uploadBusy = False
+        self.uploadSessionActive = self.uploadWorker is not None
+        self._sync_folder_upload_controls()
+        QMessageBox.critical(self, "Upload Lab", error_message)
+
+    def stop_upload(self) -> None:
+        if self.uploadWorker is not None:
+            self.uploadWorker.request_stop()
+            if self.uploadProgressLabel is not None:
+                self.uploadProgressLabel.setText("Dang dung sau ho so hien tai...")
+
+    @staticmethod
+    def _selected_staff_value(combo: QComboBox | None, default: str) -> str:
+        value = combo.currentText().strip() if combo is not None else ""
+        return value or default
+
+    def _apply_staff_options(self, options: dict) -> None:
+        for combo, key, default in (
+            (self.notaryComboBox, "cong_chung_vien", "Phạm Minh Chi"),
+            (self.secretaryComboBox, "thu_ky", "Nguyễn Nhật Minh"),
+        ):
+            if combo is None:
+                continue
+            labels = [str(label).strip() for label in options.get(key, []) if str(label).strip()]
+            combo.clear()
+            combo.addItems(labels)
+            default_index = combo.findText(default)
+            if default_index >= 0:
+                combo.setCurrentIndex(default_index)
+
+    def refresh_staff_options(self) -> None:
+        if not self.ensure_upload_runtime_ready(show_dialog=True):
+            return
+        self.uploadBusy = True
+        self._ensure_upload_worker()
+        self._sync_folder_upload_controls()
+        self.refreshStaffOptionsRequested.emit()
+
+    def _handle_staff_options_refreshed(self, options: dict) -> None:
+        self.uploadBusy = False
+        self.uploadSessionActive = True
+        self._apply_staff_options(options)
+        self._sync_folder_upload_controls()
+
+    def _handle_upload_thread_finished(self) -> None:
+        self.uploadThread = None
+        self.uploadWorker = None
+        if self.uploadCloseRequested:
+            self.close()
+
+    def _handle_upload_closed(self) -> None:
+        self.uploadSessionActive = False
+        self.uploadBusy = False
         self.uploadRemainingCount = 0
+        thread = self.uploadThread
+        if thread is not None:
+            thread.quit()
         self._sync_folder_upload_controls()
         self._log_message("[UPLOAD] Da dong browser upload.")
+
+    def close_upload_browser(self) -> None:
+        if self.uploadWorker is None:
+            return
+        self.closeUploadRequested.emit()
+        self._sync_folder_upload_controls()
 
     def _log_message(self, message: str) -> None:
         if self.logText is not None:
@@ -734,7 +854,11 @@ class UploadLabMainWindow(QMainWindow):
             QMessageBox.information(self, "Upload Lab", "Dang scan folder. Hay doi scan xong truoc khi dong app.")
             event.ignore()
             return
-        if self.uploadSession is not None:
-            self.uploadSession.close()
-            self.uploadSession = None
+        if self.uploadWorker is not None or (self.uploadThread is not None and self.uploadThread.isRunning()):
+            self.uploadCloseRequested = True
+            if self.uploadWorker is not None:
+                self.uploadWorker.request_stop()
+                self.closeUploadRequested.emit()
+            event.ignore()
+            return
         super().closeEvent(event)

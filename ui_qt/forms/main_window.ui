@@ -190,11 +190,52 @@
         </layout>
        </item>
        <item>
+        <layout class="QHBoxLayout" name="uploadStaffLayout">
+         <item>
+          <widget class="QLabel" name="notaryLabel">
+           <property name="text"><string>Cong chung vien</string></property>
+          </widget>
+         </item>
+         <item><widget class="QComboBox" name="notaryComboBox"/></item>
+         <item>
+          <widget class="QLabel" name="secretaryLabel">
+           <property name="text"><string>Thu ky</string></property>
+          </widget>
+         </item>
+         <item><widget class="QComboBox" name="secretaryComboBox"/></item>
+         <item>
+          <widget class="QPushButton" name="refreshStaffOptionsButton">
+           <property name="text"><string>Cap nhat danh sach</string></property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
         <widget class="QProgressBar" name="scanProgressBar">
          <property name="value">
           <number>0</number>
          </property>
         </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="uploadProgressLayout">
+         <item>
+          <widget class="QProgressBar" name="uploadProgressBar">
+           <property name="value"><number>0</number></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="uploadProgressLabel">
+           <property name="text"><string>Upload chua bat dau.</string></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="stopUploadButton">
+           <property name="enabled"><bool>false</bool></property>
+           <property name="text"><string>Dung</string></property>
+          </widget>
+         </item>
+        </layout>
        </item>
        <item>
         <widget class="QLabel" name="scanSummaryLabel">

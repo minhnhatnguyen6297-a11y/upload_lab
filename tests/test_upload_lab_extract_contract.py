@@ -69,7 +69,51 @@ class UploadLabExtractContractTests(unittest.TestCase):
         payload = extract(docx_path)
 
         self.assertEqual(payload["raw"]["document_kind"], "transfer_contract")
-        self.assertEqual(payload["web_form"]["ten_hop_dong"], "Hợp đồng chuyển nhượng quyền sử dụng đất")
+        self.assertEqual(payload["web_form"]["ten_hop_dong"], "HỢP ĐỒNG CHUYỂN NHƯỢNG QUYỀN SỬ DỤNG ĐẤT")
+
+    def test_document_kind_uses_two_line_header_not_filename_or_body(self):
+        docx_path = make_docx(
+            self.root / "van_ban_phan_chia_di_san.docx",
+            "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM",
+            "Độc lập - Tự do - Hạnh phúc",
+            "-----***-----",
+            "HỢP ĐỒNG",
+            "Tặng Cho Quyền Sử Dụng Đất",
+            "Trong thân có nhắc Văn bản phân chia di sản và từ chối nhận di sản.",
+            "Số công chứng 12/2026/CCGD",
+        )
+
+        payload = extract(docx_path)
+
+        self.assertEqual(payload["raw"]["document_kind"], "gift_contract")
+        self.assertEqual(payload["web_form"]["ten_hop_dong"], "HỢP ĐỒNG Tặng Cho Quyền Sử Dụng Đất")
+
+    def test_document_title_joins_specific_multiline_title(self):
+        docx_path = make_docx(
+            self.root / "multiline-title.docx",
+            "HỢP ĐỒNG TẶNG CHO",
+            "QUYỀN SỬ DỤNG ĐẤT",
+            "Chúng tôi gồm có:",
+            "Số công chứng 14/2026/CCGD",
+        )
+
+        payload = extract(docx_path)
+
+        self.assertEqual(payload["raw"]["document_kind"], "gift_contract")
+        self.assertEqual(payload["web_form"]["ten_hop_dong"], "HỢP ĐỒNG TẶNG CHO QUYỀN SỬ DỤNG ĐẤT")
+
+    def test_partition_title_wins_over_refusal_phrase_in_body(self):
+        docx_path = make_docx(
+            self.root / "partition.docx",
+            "VĂN BẢN PHÂN CHIA DI SẢN",
+            "Một người có quyền từ chối nhận di sản theo quy định pháp luật.",
+            "Số công chứng 13/2026/CCGD",
+        )
+
+        payload = extract(docx_path)
+
+        self.assertEqual(payload["raw"]["document_kind"], "inheritance_partition")
+        self.assertEqual(payload["web_form"]["ten_hop_dong"], "VĂN BẢN PHÂN CHIA DI SẢN")
 
     def test_find_tai_san_commitment_stops_before_cam_ket_xac_nhan(self):
         text = "\n".join(
@@ -113,7 +157,7 @@ class UploadLabExtractContractTests(unittest.TestCase):
         tai_san = payload["web_form"]["tai_san"]
 
         self.assertEqual(payload["raw"]["document_kind"], "asset_commitment")
-        self.assertEqual(payload["web_form"]["ten_hop_dong"], "Văn bản cam kết tài sản riêng")
+        self.assertEqual(payload["web_form"]["ten_hop_dong"], "VĂN BẢN CAM KẾT TÀI SẢN RIÊNG")
         self.assertEqual(payload["web_form"]["nhom_hop_dong"], "Thoả thuận - Cam kết")
         self.assertEqual(payload["web_form"]["loai_tai_san"], "Đất đai không có tài sản")
         self.assertIn("Nguyễn Văn Nam", duong_su)
@@ -156,7 +200,7 @@ class UploadLabExtractContractTests(unittest.TestCase):
 
         self.assertEqual(payload["web_form"]["ten_hop_dong"], "Hợp đồng ủy quyền")
 
-    def test_party_blocks_keep_shared_tru_tai_lines_for_each_person(self):
+    def test_party_blocks_do_not_copy_shared_address_to_people_above_it(self):
         docx_path = make_docx(
             self.root / "shared_address.docx",
             "HỢP ĐỒNG CHUYỂN NHƯỢNG QUYỀN SỬ DỤNG ĐẤT VÀ TÀI SẢN GẮN LIỀN VỚI ĐẤT",
@@ -183,10 +227,10 @@ class UploadLabExtractContractTests(unittest.TestCase):
         duong_su = payload["web_form"]["duong_su"]
         nguoi_yeu_cau = payload["web_form"]["nguoi_yeu_cau"]
 
-        self.assertEqual(payload["web_form"]["ten_hop_dong"], "Hợp đồng chuyển nhượng quyền sử dụng đất")
-        self.assertEqual(duong_su.count("Cùng cư trú tại: thôn A, xã B."), 2)
-        self.assertEqual(duong_su.count("Cùng cư trú tại: thôn C, xã D."), 2)
-        self.assertIn("Cùng cư trú tại: thôn C, xã D.", nguoi_yeu_cau)
+        self.assertEqual(payload["web_form"]["ten_hop_dong"], "HỢP ĐỒNG CHUYỂN NHƯỢNG QUYỀN SỬ DỤNG ĐẤT VÀ TÀI SẢN GẮN LIỀN VỚI ĐẤT")
+        self.assertEqual(duong_su.count("Cùng cư trú tại: thôn A, xã B."), 1)
+        self.assertEqual(duong_su.count("Cùng cư trú tại: thôn C, xã D."), 1)
+        self.assertNotIn("Cùng cư trú tại: thôn C, xã D.", nguoi_yeu_cau)
 
 
     def test_extract_mortgage_summary_keeps_table_order_and_uses_mortgage_party_labels(self):
@@ -222,10 +266,10 @@ class UploadLabExtractContractTests(unittest.TestCase):
         self.assertEqual(payload["raw"]["document_kind"], "mortgage_contract")
         self.assertEqual(payload["web_form"]["ten_hop_dong"], "Hợp đồng thế chấp quyền sử dụng đất")
         self.assertEqual(payload["web_form"]["nhom_hop_dong"], "Cầm cố - Thế chấp - Vay")
-        self.assertEqual(payload["web_form"]["tai_san"], "Quyền sử dụng đất")
+        self.assertEqual(payload["web_form"]["tai_san"], "quyền sử dụng đất")
         self.assertEqual(payload["web_form"]["loai_tai_san"], "Đất đai không có tài sản")
-        self.assertIn("BÊN THẾ CHẤP:", duong_su)
-        self.assertIn("BÊN NHẬN THẾ CHẤP:", duong_su)
+        self.assertNotIn("BÊN THẾ CHẤP:", duong_su)
+        self.assertNotIn("BÊN NHẬN THẾ CHẤP:", duong_su)
         self.assertIn("NGÂN HÀNG THƯƠNG MẠI CỔ PHẦN NGOẠI THƯƠNG VIỆT NAM", duong_su)
         self.assertIn("Nguyễn Hữu Dụng", payload["web_form"]["nguoi_yeu_cau"])
         self.assertEqual(len(payload["raw"]["ben_a"]["nguoi"]), 2)
@@ -332,6 +376,21 @@ class UploadLabExtractContractTests(unittest.TestCase):
         self.assertIn("Thua dat so: 10", tai_san)
         self.assertNotIn("Gia chuyen nhuong", tai_san)
 
+    def test_find_tai_san_falls_back_to_end_when_stop_marker_is_absent(self):
+        text = "\n".join(
+            [
+                "HỢP ĐỒNG CHUYỂN NHƯỢNG QUYỀN SỬ DỤNG ĐẤT",
+                "Đối tượng của Hợp đồng này là quyền sử dụng đất tại xã A.",
+                "- Thửa đất số: 88",
+                "- Diện tích: 120 m2",
+            ]
+        )
+
+        tai_san = find_tai_san(text)
+
+        self.assertIn("Thửa đất số: 88", tai_san)
+        self.assertIn("Diện tích: 120 m2", tai_san)
+
     def test_extract_inheritance_partition_uses_single_heir_group_and_stops_asset_before_heirs_section(self):
         docx_path = make_docx(
             self.root / "phan_chia_di_san.docx",
@@ -368,10 +427,10 @@ class UploadLabExtractContractTests(unittest.TestCase):
         tai_san = payload["web_form"]["tai_san"]
 
         self.assertEqual(payload["raw"]["document_kind"], "inheritance_partition")
-        self.assertEqual(payload["web_form"]["ten_hop_dong"], "Văn bản phân chia di sản")
+        self.assertEqual(payload["web_form"]["ten_hop_dong"], "VĂN BẢN PHÂN CHIA DI SẢN")
         self.assertEqual(payload["web_form"]["nhom_hop_dong"], "Thừa kế (khai nhận - phân chia di sản thừa kế )")
         self.assertEqual(payload["web_form"]["so_cong_chung"], "2433/2025")
-        self.assertTrue(duong_su.startswith("NHỮNG NGƯỜI HƯỞNG DI SẢN:"))
+        self.assertNotIn("NHỮNG NGƯỜI HƯỞNG DI SẢN:", duong_su)
         self.assertIn("Nguyễn Thị Tuyết", duong_su)
         self.assertIn("Nguyễn Thị Nga", duong_su)
         self.assertIn("Nguyễn Thị Thu Là", duong_su)
@@ -419,11 +478,11 @@ class UploadLabExtractContractTests(unittest.TestCase):
         tai_san = payload["web_form"]["tai_san"]
 
         self.assertEqual(payload["raw"]["document_kind"], "inheritance_refusal")
-        self.assertEqual(payload["web_form"]["ten_hop_dong"], "Văn bản từ chối nhận di sản")
+        self.assertEqual(payload["web_form"]["ten_hop_dong"], "VĂN BẢN TỪ CHỐI NHẬN DI SẢN")
         self.assertEqual(payload["web_form"]["nhom_hop_dong"], "Từ chối nhận di sản thừa kế")
         self.assertEqual(payload["web_form"]["so_cong_chung"], "2233/2025")
         self.assertIn("Hoàng Thị Hợi", payload["web_form"]["nguoi_yeu_cau"])
-        self.assertTrue(duong_su.startswith("NGƯỜI TỪ CHỐI NHẬN DI SẢN:"))
+        self.assertTrue(duong_su.startswith("Bà Hoàng Thị Hợi"))
         self.assertNotIn("BÊN B:", duong_su)
         self.assertIn("Tài sản thứ hai", tai_san)
         self.assertIn("122(12)", tai_san)

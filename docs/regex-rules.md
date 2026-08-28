@@ -102,3 +102,7 @@ Khi cần bổ sung thêm một loại văn bản mới vào hệ thống:
    - Nếu tài sản có marker đặc thù $\rightarrow$ Bổ sung `_find_tai_san_<kind>()` và tích hợp vào `_find_tai_san_by_kind()`.
 5. **Thêm Unit Test**: Bổ sung test case vào `tests/test_upload_lab_extract_contract.py`.
 6. **Chạy đối chiếu mẫu thực tế**: Đặt file vào `regex_review_samples/input/` và chạy `review_regex_samples.py`.
+
+## Future runtime LLM
+
+Có thể nghiên cứu chế độ `regex` / `hybrid` / `llm` trả về span offsets có cấu trúc, không nhận free text. Mặc định phải tắt; khi timeout hoặc lỗi phải fallback về regex. Dữ liệu có PII nên chỉ được xử lý trong ranh giới bảo mật đã phê duyệt. Đây chỉ là ý tưởng, chưa triển khai runtime.

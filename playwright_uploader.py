@@ -88,6 +88,7 @@ DEFAULT_REQUESTER_SHEET_URL = (
 )
 REQUESTER_SHEET_CACHE_NAME = "requester_lookup_cache.csv"
 REQUESTER_SHEET_TIMEOUT_SECONDS = 20
+STAFF_OPTIONS_CACHE_NAME = "uploader_staff_options.json"
 UPLOADER_ENV_KEYS = (
     "ND_BASE_URL",
     "ND_LOGIN_URL",
@@ -161,7 +162,10 @@ def field_value_matches(field_name: str, expected: str, actual: str) -> bool:
 
     for candidate in get_field_value_candidates(field_name, expected):
         candidate_fold = _fold_value(candidate)
-        if candidate_fold and candidate_fold in actual_fold:
+        if field_name in {"cong_chung_vien", "thu_ky"}:
+            if candidate_fold and candidate_fold == actual_fold:
+                return True
+        elif candidate_fold and candidate_fold in actual_fold:
             return True
     return False
 
@@ -677,6 +681,8 @@ def load_upload_queue(
     limit: Optional[int] = None,
     selected_record_ids: set[int] | None = None,
     requester_lookup: Optional[dict[str, str]] = None,
+    cong_chung_vien: str | None = None,
+    thu_ky: str | None = None,
     statuses: tuple[str, ...] = QUEUE_STATUSES,
 ) -> tuple[dict, list[UploadRecord], int]:
     manifest = load_manifest(manifest_path)
@@ -701,6 +707,8 @@ def load_upload_queue(
             payload,
             contract_no=str(row_dict.get("contract_no") or ""),
             requester_lookup=requester_lookup,
+            cong_chung_vien=cong_chung_vien,
+            thu_ky=thu_ky,
         )
         source_file = Path(upload_form["file_hop_dong"])
         missing_fields = identify_missing_fields(upload_form)
@@ -744,6 +752,8 @@ def build_upload_form_data(
     *,
     contract_no: str = "",
     requester_lookup: Optional[dict[str, str]] = None,
+    cong_chung_vien: str | None = None,
+    thu_ky: str | None = None,
 ) -> dict:
     web_form = dict(payload.get("web_form") or {})
     raw = dict(payload.get("raw") or {})
@@ -755,8 +765,10 @@ def build_upload_form_data(
         "tinh_trang": DEFAULT_STATUS_TEXT,
         "nhom_hop_dong": str(web_form.get("nhom_hop_dong") or "").strip(),
         "loai_tai_san": str(web_form.get("loai_tai_san") or "").strip(),
-        "cong_chung_vien": str(web_form.get("cong_chung_vien") or "").strip(),
-        "thu_ky": str(web_form.get("thu_ky") or "").strip(),
+        "cong_chung_vien": str(
+            cong_chung_vien if cong_chung_vien is not None else web_form.get("cong_chung_vien") or ""
+        ).strip(),
+        "thu_ky": str(thu_ky if thu_ky is not None else web_form.get("thu_ky") or "").strip(),
         "nguoi_yeu_cau": (
             resolve_requester_override(
                 payload,
@@ -1048,6 +1060,73 @@ class NamDinhUploaderSession:
                 self._perform_login(page)
                 page.goto(self.settings.create_url, wait_until="domcontentloaded")
                 page.wait_for_load_state("networkidle")
+        finally:
+            page.close()
+
+    @property
+    def staff_options_cache_path(self) -> Path:
+        return self.working_dir / STAFF_OPTIONS_CACHE_NAME
+
+    @staticmethod
+    def load_staff_options_cache(working_dir: Path = BASE_DIR) -> dict[str, list[str]]:
+        cache_path = Path(working_dir) / STAFF_OPTIONS_CACHE_NAME
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return {"cong_chung_vien": [], "thu_ky": []}
+        return {
+            field_name: [str(label).strip() for label in payload.get(field_name, []) if str(label).strip()]
+            for field_name in ("cong_chung_vien", "thu_ky")
+        }
+
+    def _read_dropdown_options(self, page, field_name: str) -> list[str]:
+        locator, source = self._resolve_control_locator(page, field_name)
+        if locator is None or locator.count() == 0:
+            raise RuntimeError(f"Khong tim thay dropdown {field_name} ({source})")
+        try:
+            tag_name = str(locator.evaluate("(el) => el.tagName.toLowerCase()") or "").lower()
+        except Exception:
+            tag_name = ""
+        if tag_name == "select":
+            labels = locator.locator("option").all_text_contents()
+        else:
+            locator.click()
+            page.wait_for_timeout(150)
+            options = page.get_by_role("option")
+            labels = options.all_text_contents() if options.count() else []
+            try:
+                page.keyboard.press("Escape")
+            except Exception:
+                pass
+
+        result: list[str] = []
+        for label in labels:
+            text = " ".join(str(label or "").split())
+            folded = _fold_value(text)
+            if not text or folded in {"chon", "-- chon --", "chon cong chung vien", "chon thu ky"}:
+                continue
+            if text not in result:
+                result.append(text)
+        return result
+
+    def fetch_staff_options(self) -> dict[str, list[str]]:
+        self.ensure_authenticated()
+        page = self.context.new_page()
+        try:
+            page.goto(self.settings.create_url, wait_until="domcontentloaded")
+            page.wait_for_load_state("networkidle")
+            options = {
+                field_name: self._read_dropdown_options(page, field_name)
+                for field_name in ("cong_chung_vien", "thu_ky")
+            }
+            self.staff_options_cache_path.write_text(
+                json.dumps(options, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            self.log(
+                f"[UPLOAD] Da cap nhat danh sach CCV={len(options['cong_chung_vien'])}, thu ky={len(options['thu_ky'])}."
+            )
+            return options
         finally:
             page.close()
 
@@ -1418,7 +1497,15 @@ class NamDinhUploaderSession:
         except Exception:
             tag_name = ""
 
-        if tag_name in {"input", "textarea", "select"}:
+        if tag_name == "select":
+            try:
+                return str(
+                    locator.evaluate("(el) => el.selectedOptions.length ? el.selectedOptions[0].textContent : ''")
+                    or ""
+                ).strip()
+            except Exception:
+                return ""
+        if tag_name in {"input", "textarea"}:
             try:
                 return str(locator.input_value()).strip()
             except Exception:
@@ -1562,6 +1649,8 @@ class NamDinhUploaderSession:
         exclude_contract_nos: Optional[set[str]] = None,
         requester_sheet_url: str = "",
         progress_callback: Optional[Callable[[dict], None]] = None,
+        cong_chung_vien: str | None = None,
+        thu_ky: str | None = None,
     ) -> dict:
         def emit_progress(event: str, **payload: object) -> None:
             if progress_callback is None:
@@ -1586,6 +1675,8 @@ class NamDinhUploaderSession:
             working_dir=self.working_dir,
             selected_record_ids=selected_record_ids,
             requester_lookup=requester_lookup,
+            cong_chung_vien=cong_chung_vien,
+            thu_ky=thu_ky,
             statuses=PREPARE_QUEUE_STATUSES,
         )
         run_id = str(manifest["run_id"])

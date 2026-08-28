@@ -161,7 +161,7 @@ class UploadBatchScanTests(unittest.TestCase):
         self.assertIn("Thửa đất số: 20", tai_san)
         self.assertNotIn("Hai vợ chồng chúng tôi cam đoan", tai_san)
 
-    def test_batch_scan_finds_depth_three_and_skips_depth_four(self):
+    def test_batch_scan_scans_all_nested_folders_by_default(self):
         batch_root = self.root / "hoso"
         make_docx(
             batch_root / "A" / "B" / "C" / "allowed.docx",
@@ -176,9 +176,12 @@ class UploadBatchScanTests(unittest.TestCase):
         manifest = run_batch_scan(batch_root, working_dir=workdir)
 
         output_files = sorted((workdir / "output").glob("*.json"))
-        self.assertEqual(manifest["stats"]["candidates_found"], 1)
-        self.assertEqual(len(output_files), 1)
-        self.assertIn("428_2026_CCGD", output_files[0].name)
+        self.assertEqual(manifest["stats"]["candidates_found"], 2)
+        self.assertEqual(len(output_files), 2)
+        self.assertEqual(
+            {"428_2026_CCGD", "429_2026_CCGD"},
+            {path.name.rsplit("_", 1)[0] for path in output_files},
+        )
 
     def test_batch_scan_respects_custom_max_depth(self):
         batch_root = self.root / "hoso"

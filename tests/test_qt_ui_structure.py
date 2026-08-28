@@ -69,7 +69,7 @@ class QtUIStructureTests(unittest.TestCase):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
         from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QPushButton, QProgressBar, QTabWidget, QTableWidget
+        from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QLineEdit, QPushButton, QProgressBar, QTabWidget, QTableWidget
 
         from ui_qt.main_window import UploadLabMainWindow
 
@@ -102,6 +102,12 @@ class QtUIStructureTests(unittest.TestCase):
             ("uploadSelectedButton", QPushButton),
             ("continueUploadButton", QPushButton),
             ("closeUploadBrowserButton", QPushButton),
+            ("notaryComboBox", QComboBox),
+            ("secretaryComboBox", QComboBox),
+            ("refreshStaffOptionsButton", QPushButton),
+            ("uploadProgressBar", QProgressBar),
+            ("uploadProgressLabel", QLabel),
+            ("stopUploadButton", QPushButton),
         ]
 
         for name, widget_type in widget_checks:
@@ -281,7 +287,7 @@ class QtUIStructureTests(unittest.TestCase):
             mocked_load_excel.assert_called_once_with()
         self.assertIsNotNone(app)
 
-    def test_upload_selected_prepares_only_checked_records(self):
+    def test_upload_selected_queues_prepare_without_calling_session_on_gui_thread(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
         from PySide6.QtWidgets import QApplication
@@ -308,28 +314,79 @@ class QtUIStructureTests(unittest.TestCase):
             window.folderNumberSelection.set_selected(22, False)
             window._apply_selection_to_folder_table()
 
-            fake_session = MagicMock()
-            fake_session.prepare_manifest.return_value = {"prepared_count": 1}
+            commands = []
+            window.prepareUploadRequested.connect(commands.append)
 
-            with patch.object(window, "ensure_upload_runtime_ready", return_value=True), patch(
-                "ui_qt.main_window.load_uploader_settings",
-                return_value=object(),
-            ), patch("ui_qt.main_window.NamDinhUploaderSession", return_value=fake_session), patch.object(
+            with patch.object(window, "ensure_upload_runtime_ready", return_value=True), patch.object(
                 window,
-                "_refresh_scan_results_from_manifest",
+                "_ensure_upload_worker",
+                return_value=MagicMock(),
             ):
                 window.handle_upload_selected()
 
-            fake_session.prepare_manifest.assert_called_once()
-            _, kwargs = fake_session.prepare_manifest.call_args
-            self.assertEqual(kwargs["selected_record_ids"], {21})
-            fake_session.close.assert_not_called()
-            self.assertIs(window.uploadSession, fake_session)
+            self.assertEqual(len(commands), 1)
+            self.assertEqual(commands[0]["selected_record_ids"], [21])
+            self.assertEqual(commands[0]["cong_chung_vien"], "Phạm Minh Chi")
+            self.assertEqual(commands[0]["thu_ky"], "Nguyễn Nhật Minh")
+            self.assertTrue(window.uploadBusy)
+            self.assertTrue(window.stopUploadButton.isEnabled())
             self.assertFalse(window.continueUploadButton.isEnabled())
-            self.assertTrue(window.closeUploadBrowserButton.isEnabled())
+            self.assertFalse(window.closeUploadBrowserButton.isEnabled())
         self.assertIsNotNone(app)
 
-    def test_upload_continue_reuses_selected_records_and_close_button_closes_session(self):
+    def test_upload_worker_owns_stop_event_across_qthread(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from PySide6.QtCore import QEventLoop, QObject, QThread, QTimer, Signal
+        from PySide6.QtWidgets import QApplication
+
+        from ui_qt.workers import UploadWorker
+
+        app = QApplication.instance() or QApplication([])
+
+        class Sender(QObject):
+            command = Signal(object)
+
+        class FakeSession:
+            def __init__(self):
+                self.command = None
+
+            def prepare_manifest(self, manifest_path, stop_event, **kwargs):
+                self.command = (manifest_path, stop_event, kwargs)
+                return {"prepared_count": 1, "remaining": 0}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            worker = UploadWorker(Path(temp_dir))
+            fake_session = FakeSession()
+            worker._ensure_session = lambda: fake_session
+            thread = QThread()
+            sender = Sender()
+            loop = QEventLoop()
+            result = []
+            worker.moveToThread(thread)
+            sender.command.connect(worker.prepare)
+            worker.prepared.connect(lambda summary: (result.append(summary), loop.quit()))
+            thread.start()
+            sender.command.emit(
+                {
+                    "manifest_path": "manifest.json",
+                    "selected_record_ids": [11, 12],
+                    "exclude_contract_nos": [],
+                    "cong_chung_vien": "Phạm Minh Chi",
+                    "thu_ky": "Nguyễn Nhật Minh",
+                }
+            )
+            QTimer.singleShot(3000, loop.quit)
+            loop.exec()
+            thread.quit()
+            self.assertTrue(thread.wait(3000))
+
+            self.assertEqual(result, [{"prepared_count": 1, "remaining": 0}])
+            self.assertIs(fake_session.command[1], worker.stop_event)
+            self.assertEqual(fake_session.command[2]["selected_record_ids"], {11, 12})
+        self.assertIsNotNone(app)
+
+    def test_upload_progress_stop_and_continue_reuse_selected_records(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
         from PySide6.QtWidgets import QApplication
@@ -354,38 +411,39 @@ class QtUIStructureTests(unittest.TestCase):
             )
             window.render_scan_classification(classification)
 
-            fake_session = MagicMock()
-            fake_session.prepare_manifest.side_effect = [
-                {"prepared_count": 1, "remaining": 1},
-                {"prepared_count": 1, "remaining": 0},
-            ]
+            commands = []
+            window.prepareUploadRequested.connect(commands.append)
+            fake_worker = MagicMock()
+            window.uploadWorker = fake_worker
 
-            with patch.object(window, "ensure_upload_runtime_ready", return_value=True), patch(
-                "ui_qt.main_window.load_uploader_settings",
-                return_value=object(),
-            ), patch("ui_qt.main_window.NamDinhUploaderSession", return_value=fake_session), patch.object(
+            with patch.object(window, "ensure_upload_runtime_ready", return_value=True), patch.object(
                 window,
-                "_refresh_scan_results_from_manifest",
+                "_ensure_upload_worker",
+                return_value=fake_worker,
+            ), patch.object(
+                window, "_refresh_scan_results_from_manifest"
             ):
                 window.handle_upload_selected()
+                window._handle_upload_progress(
+                    {"event": "record_prepared", "prepared_count": 1, "total_pending": 2, "contract_no": "31/2026"}
+                )
+                self.assertEqual(window.uploadProgressBar.value(), 50)
+                self.assertIn("31/2026", window.uploadProgressLabel.text())
+                window.stop_upload()
+                window.uploadWorker.request_stop.assert_called_once_with()
+
+                window._handle_upload_prepared({"prepared_count": 1, "remaining": 1})
 
                 self.assertTrue(window.continueUploadButton.isEnabled())
                 self.assertTrue(window.closeUploadBrowserButton.isEnabled())
 
                 window.continue_upload_selected()
+                window._handle_upload_prepared({"prepared_count": 1, "remaining": 0})
 
-            self.assertEqual(fake_session.prepare_manifest.call_count, 2)
-            first_kwargs = fake_session.prepare_manifest.call_args_list[0].kwargs
-            second_kwargs = fake_session.prepare_manifest.call_args_list[1].kwargs
-            self.assertEqual(first_kwargs["selected_record_ids"], {31, 32})
-            self.assertEqual(second_kwargs["selected_record_ids"], {31, 32})
+            self.assertEqual(len(commands), 2)
+            self.assertEqual(commands[0]["selected_record_ids"], [31, 32])
+            self.assertEqual(commands[1]["selected_record_ids"], [31, 32])
             self.assertFalse(window.continueUploadButton.isEnabled())
-
-            window.close_upload_browser()
-
-            fake_session.close.assert_called_once_with()
-            self.assertIsNone(window.uploadSession)
-            self.assertFalse(window.closeUploadBrowserButton.isEnabled())
         self.assertIsNotNone(app)
 
     def test_excel_load_renders_clean_missing_and_issue_tables(self):
