@@ -39,6 +39,7 @@ def set_table_rows(
             table.setItem(row_index, column_index, item)
     if resize_columns:
         table.resizeColumnsToContents()
+        table.horizontalHeader().setStretchLastSection(True)
 
 
 def configure_audit_table_scrollbars(table: QTableWidget, *, horizontal: bool = False) -> None:
@@ -101,6 +102,7 @@ def set_checkable_upload_rows(table: QTableWidget, rows: list) -> None:
         table.setItem(row_index, 5, file_item)
 
     table.resizeColumnsToContents()
+    table.horizontalHeader().setStretchLastSection(True)
 
 
 def checked_record_ids(table: QTableWidget) -> list[int]:
