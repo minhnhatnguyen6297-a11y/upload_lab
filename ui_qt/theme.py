@@ -76,6 +76,158 @@ QWidget#centralWidget {{
     background-color: {APP_BACKGROUND_COLOR};
 }}
 
+/* Left Sidebar Navigation */
+QWidget#sidebarWidget {{
+    background-color: #F8FAFC;
+    border-right: 1px solid {BORDER_LIGHT_COLOR};
+}}
+
+QLabel#appTitleLabel {{
+    color: #0F172A;
+    font-weight: 700;
+    font-size: 12pt;
+}}
+
+QLabel#appSubtitleLabel {{
+    color: {MUTED_TEXT_COLOR};
+    font-size: 8pt;
+}}
+
+QPushButton#navExcelButton,
+QPushButton#navFolderButton,
+QPushButton#navSettingsButton {{
+    min-height: 38px;
+    padding: 6px 12px;
+    color: #475569;
+    background-color: transparent;
+    border: none;
+    border-left: 3px solid transparent;
+    border-radius: {CORNER_RADIUS}px;
+    font-weight: 500;
+    text-align: left;
+}}
+
+QPushButton#navExcelButton:hover,
+QPushButton#navFolderButton:hover,
+QPushButton#navSettingsButton:hover {{
+    color: {PRIMARY_COLOR};
+    background-color: #EDF2F7;
+}}
+
+QPushButton#navExcelButton:checked,
+QPushButton#navFolderButton:checked,
+QPushButton#navSettingsButton:checked {{
+    color: {PRIMARY_COLOR};
+    background-color: #EFF6FF;
+    border-left: 3px solid {PRIMARY_COLOR};
+    font-weight: 600;
+}}
+
+QLabel#systemStatusBadge {{
+    padding: 4px 10px;
+    color: #16A34A;
+    background-color: #F0FDF4;
+    border: 1px solid #BBF7D0;
+    border-radius: 10px;
+    font-size: 8pt;
+    font-weight: 600;
+}}
+
+/* Page Headers */
+QLabel#excelPageTitleLabel,
+QLabel#folderPageTitleLabel {{
+    color: #0F172A;
+    font-weight: 700;
+    font-size: 14pt;
+}}
+
+QLabel#excelPageSubtitleLabel,
+QLabel#folderPageSubtitleLabel {{
+    color: {MUTED_TEXT_COLOR};
+    font-size: 9pt;
+}}
+
+/* Container Cards */
+QWidget#excelFilterCard,
+QWidget#folderConfigCard,
+QWidget#folderProgressCard {{
+    background-color: {SURFACE_COLOR};
+    border: 1px solid {BORDER_LIGHT_COLOR};
+    border-radius: 8px;
+}}
+
+/* KPI Stat Cards */
+QWidget#kpiTotalCard,
+QWidget#kpiValidCard,
+QWidget#kpiMissingCard,
+QWidget#kpiIssueCard {{
+    background-color: {SURFACE_COLOR};
+    border: 1px solid {BORDER_LIGHT_COLOR};
+    border-radius: 8px;
+    padding: 4px 8px;
+}}
+
+QLabel#kpiTotalTitle {{
+    color: {PRIMARY_COLOR};
+    font-size: 7.5pt;
+    font-weight: 700;
+}}
+
+QLabel#kpiTotalValue {{
+    color: {PRIMARY_COLOR};
+    font-size: 16pt;
+    font-weight: 700;
+}}
+
+QLabel#kpiValidTitle {{
+    color: #16A34A;
+    font-size: 7.5pt;
+    font-weight: 700;
+}}
+
+QLabel#kpiValidValue {{
+    color: #16A34A;
+    font-size: 16pt;
+    font-weight: 700;
+}}
+
+QLabel#kpiMissingTitle {{
+    color: #D97706;
+    font-size: 7.5pt;
+    font-weight: 700;
+}}
+
+QLabel#kpiMissingValue {{
+    color: #D97706;
+    font-size: 16pt;
+    font-weight: 700;
+}}
+
+QLabel#kpiIssueTitle {{
+    color: {DANGER_COLOR};
+    font-size: 7.5pt;
+    font-weight: 700;
+}}
+
+QLabel#kpiIssueValue {{
+    color: {DANGER_COLOR};
+    font-size: 16pt;
+    font-weight: 700;
+}}
+
+QTabWidget#mainTabs::pane {{
+    border: none;
+    background-color: transparent;
+}}
+
+QTabWidget#mainTabs > QTabBar::tab {{
+    width: 0px;
+    height: 0px;
+    margin: 0px;
+    padding: 0px;
+    border: none;
+}}
+
 QTabWidget::pane {{
     border: 1px solid {BORDER_LIGHT_COLOR};
     border-radius: {CORNER_RADIUS}px;

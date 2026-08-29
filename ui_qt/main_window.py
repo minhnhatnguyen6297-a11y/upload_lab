@@ -124,8 +124,70 @@ class UploadLabMainWindow(QMainWindow):
         ensure_uploader_env_file(self.working_dir)
         self.refresh_runtime_status()
         self._load_ui()
+        self._connect_navigation()
         self._connect_excel_tab()
         self._connect_folder_tab()
+
+    def _connect_navigation(self) -> None:
+        if self.ui is None:
+            return
+        self.mainTabs = cast(QTabWidget, self.ui.findChild(QTabWidget, "mainTabs"))
+        self.navExcelButton = cast(QPushButton, self.ui.findChild(QPushButton, "navExcelButton"))
+        self.navFolderButton = cast(QPushButton, self.ui.findChild(QPushButton, "navFolderButton"))
+        self.navSettingsButton = cast(QPushButton, self.ui.findChild(QPushButton, "navSettingsButton"))
+
+        if self.navExcelButton is not None:
+            self.navExcelButton.clicked.connect(lambda: self._set_current_page(0))
+        if self.navFolderButton is not None:
+            self.navFolderButton.clicked.connect(lambda: self._set_current_page(1))
+        if self.navSettingsButton is not None:
+            self.navSettingsButton.clicked.connect(lambda: self._set_current_page(2))
+
+        if self.mainTabs is not None:
+            if self.mainTabs.tabBar() is not None:
+                self.mainTabs.tabBar().hide()
+            self.mainTabs.currentChanged.connect(self._sync_navigation_state)
+
+    def _set_current_page(self, index: int) -> None:
+        if self.mainTabs is not None:
+            self.mainTabs.setCurrentIndex(index)
+        self._sync_navigation_state(index)
+
+    def _sync_navigation_state(self, index: int) -> None:
+        if self.navExcelButton is not None:
+            self.navExcelButton.setChecked(index == 0)
+        if self.navFolderButton is not None:
+            self.navFolderButton.setChecked(index == 1)
+        if self.navSettingsButton is not None:
+            self.navSettingsButton.setChecked(index == 2)
+
+    def _sync_kpi_cards(self) -> None:
+        if self.ui is None:
+            return
+        kpi_total = cast(QLabel, self.ui.findChild(QLabel, "kpiTotalValue"))
+        kpi_valid = cast(QLabel, self.ui.findChild(QLabel, "kpiValidValue"))
+        kpi_missing = cast(QLabel, self.ui.findChild(QLabel, "kpiMissingValue"))
+        kpi_issue = cast(QLabel, self.ui.findChild(QLabel, "kpiIssueValue"))
+
+        if self.contract_book_analysis is not None:
+            summary = self.contract_book_analysis.summary
+            if kpi_total is not None:
+                kpi_total.setText(f"{summary.excel_total:,}")
+            if kpi_valid is not None:
+                kpi_valid.setText(f"{summary.valid_count:,}")
+            if kpi_missing is not None:
+                kpi_missing.setText(f"{summary.missing_count:,}")
+            if kpi_issue is not None:
+                kpi_issue.setText(f"{summary.issue_count + summary.duplicate_count:,}")
+        else:
+            if kpi_total is not None:
+                kpi_total.setText("0")
+            if kpi_valid is not None:
+                kpi_valid.setText("0")
+            if kpi_missing is not None:
+                kpi_missing.setText("0")
+            if kpi_issue is not None:
+                kpi_issue.setText("0")
 
     def _load_ui(self) -> None:
         ui_path = Path(__file__).resolve().parent / "forms" / "main_window.ui"
@@ -265,6 +327,7 @@ class UploadLabMainWindow(QMainWindow):
         set_table_rows(self.excelMissingTable, EXCEL_MISSING_HEADERS, [], resize_columns=False)
         set_table_rows(self.excelIssueTable, EXCEL_ISSUE_HEADERS, [], resize_columns=False)
         self.excelSummaryLabel.setText(summary_text)
+        self._sync_kpi_cards()
 
     def _reset_folder_results(self, summary_text: str) -> None:
         if (
@@ -468,6 +531,7 @@ class UploadLabMainWindow(QMainWindow):
         self.excelSummaryLabel.setText(
             f"Excel={summary.excel_total} | hop_le={summary.valid_count} | thieu={summary.missing_count} | loi={summary.issue_count} | trung={summary.duplicate_count}"
         )
+        self._sync_kpi_cards()
 
     def browse_folder(self) -> None:
         if self.ui is None or self.folderPathEdit is None:
