@@ -3,3 +3,4 @@ python-dotenv
 playwright
 openpyxl
 PySide6
+pyqtdarktheme-fork==2.3.6

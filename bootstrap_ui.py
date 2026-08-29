@@ -16,7 +16,7 @@ REQUIREMENTS_PATH = BASE_DIR / "requirements.txt"
 SETUP_STAMP_PATH = BASE_DIR / ".ui_setup_state.json"
 UI_RUNNER_PATH = BASE_DIR / "ui_runner.py"
 RUNTIME_DIRS = ("output", "runs", "logs", "downloads", "upload_runs")
-RUNTIME_MODULES = ("docx", "dotenv", "playwright", "openpyxl", "PySide6")
+RUNTIME_MODULES = ("docx", "dotenv", "playwright", "openpyxl", "PySide6", "qdarktheme")
 
 if sys.platform.startswith("win"):
     VENV_PYTHON = BASE_DIR / ".venv" / "Scripts" / "python.exe"
