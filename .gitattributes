@@ -1,0 +1,16 @@
+# Normalize to LF in the repository; Git checks out native line endings on Windows.
+* text=auto eol=lf
+
+*.py    text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.txt   text eol=lf
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+
+*.png   binary
+*.jpg   binary
+*.xlsx  binary
+*.doc   binary
+*.docx  binary
+*.sqlite3 binary

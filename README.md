@@ -40,15 +40,22 @@ flowchart LR
      - `sai format` / `sai nam` / `khong co so`: Cảnh báo để người dùng kiểm tra lại file Word.
 
 ### Giai đoạn 3: Tự động hóa Upload (`playwright_uploader.py` + `uploader_selectors.py`)
-1. **Điều khiển trình duyệt Chromium**:
-   - Đăng nhập vào hệ thống phần mềm quản lý công chứng tỉnh Nam Định.
-   - Lưu trữ/Tái sử dụng session bằng `nd_storage_state.json`.
+1. **Đăng nhập thủ công, không lưu mật khẩu**:
+   - App **không** lưu tên đăng nhập hoặc mật khẩu. Người dùng tự đăng nhập trong Chromium do app mở.
+   - App nhận biết đã đăng nhập khi local storage có `access_token` và trang đã rời `/dang-nhap`.
+   - Sau đó lưu lại session vào `nd_storage_state.json` để tái sử dụng.
+   - Một Chromium dùng chung cho cả đăng nhập, tải Excel và chuẩn bị upload.
 2. **Điền biểu mẫu (Web Form Automation)**:
    - Điều hướng vào trang tạo mới hồ sơ công chứng.
    - Tự động điền: Tên hợp đồng, Số công chứng, Ngày công chứng, Nhóm HĐ (dropdown), Loại tài sản (radio/dropdown), Công chứng viên, Người yêu cầu, Đương sự (Textarea), Tài sản (Textarea).
-3. **Chế độ thực thi**:
-   - **Dry-run**: Tự động điền toàn bộ dữ liệu, dừng lại trước nút *Lưu* để người dùng kiểm tra trực quan trên trình duyệt.
-   - **Finalize / Upload**: Xác nhận lưu thành công và cập nhật trạng thái `UPLOADED` vào `registry.sqlite3`.
+3. **Chuẩn bị theo đợt & người dùng tự bấm Lưu**:
+   - Người dùng chọn số tab mở mỗi đợt (1–30) ngay trên trang *Folder Scan & Upload*; mỗi tab gắn với một `record_id` nên không mở trùng hồ sơ.
+   - App điền sẵn rồi **dừng trước nút Lưu** — người dùng kiểm tra trực quan và tự bấm *Lưu*. App không bấm thay.
+   - App nhận biết đã Lưu qua phản hồi `POST /api/hoso` thành công (hoặc web chuyển khỏi trang tạo nhanh), tự đóng tab đó, cập nhật `uploaded_success` vào `registry.sqlite3` và bỏ dòng khỏi bảng.
+   - Bấm *Tiếp tục N số tiếp theo* để mở đợt mới; app không tự mở đợt kế tiếp.
+
+> [!NOTE]
+> Hợp đồng chi tiết của luồng đăng nhập, nhận diện Lưu và kế hoạch kiểm tra môi trường trước lần đăng nhập đầu xem tại: [`docs/handoff-login-handshake.md`](docs/handoff-login-handshake.md) và [`docs/fluent_ui_redesign/SPEC_LAYOUT_FLUENT_UI.md`](docs/fluent_ui_redesign/SPEC_LAYOUT_FLUENT_UI.md).
 
 ---
 
@@ -68,7 +75,7 @@ flowchart LR
 | `tai_san` | Đoạn mô tả thửa đất, diện tích, GCN, dừng trước cam đoan | `Quyền sử dụng đất tại xã A... Thửa số 10...` |
 
 > [!NOTE]
-> Chi tiết toàn bộ quy tắc regex nhận diện và điểm bắt đầu/kết thúc của từng loại văn bản xem tại: [`docs/regex-rules.md`](file:///D:/upload_lab_repo/docs/regex-rules.md).
+> Chi tiết toàn bộ quy tắc regex nhận diện và điểm bắt đầu/kết thúc của từng loại văn bản xem tại: [`docs/regex-rules.md`](docs/regex-rules.md).
 
 ---
 
@@ -84,18 +91,43 @@ upload_lab/
 |-- batch_scan.py                   # Quét folder, xuất manifest, ghi SQLite
 |-- playwright_uploader.py          # Script điều khiển trình duyệt Playwright
 |-- uploader_selectors.py           # Selectors định vị phần tử web form
+|-- regex_lab.py                    # CLI ingest/review/verify cho vòng lặp đánh giá regex
+|-- review_regex_samples.py         # Xuất báo cáo regex (CSV/JSON/XLSX) từ mẫu thực tế
 |-- build_standalone_release.ps1    # Script đóng gói bản phát hành độc lập
 |-- docs/
-|   `-- regex-rules.md              # Catalog quy tắc regex chuẩn cho các loại văn bản
-|-- ui_qt/                          # Giao diện Qt/PySide6 (Window, Forms, Widgets, Workers)
+|   |-- regex-rules.md              # Catalog quy tắc regex chuẩn cho các loại văn bản
+|   |-- handoff-login-handshake.md  # Hợp đồng luồng đăng nhập thủ công & nhận diện Lưu
+|   `-- fluent_ui_redesign/         # Spec Fluent UI 2.0 + kế hoạch kiểm tra môi trường
+|-- ui_qt/                          # Giao diện Fluent (PySide6-Fluent-Widgets)
+|   |-- app.py                      # Khởi tạo QApplication, áp theme
+|   |-- main_window.py              # FluentWindow: navigation, các trang, signal/slot
+|   |-- theme.py                    # Design token + QSS bổ sung trên nền qdarktheme
+|   |-- widgets.py                  # Widget dùng chung
+|   `-- workers.py                  # QThread worker cho scan / audit / upload
 |-- ui/services/                    # Nghiệp vụ kiểm toán Excel, phân loại scan & upload
-|-- tests/                          # 92 unit tests bao phủ toàn bộ luồng
+|-- tools/inspect_ui_style.py       # Dump metric/màu widget để soi hồi quy giao diện
+|-- tests/                          # 109 unit tests bao phủ toàn bộ luồng
 `-- regex_review_samples/           # Thư mục chứa sample test và báo cáo đánh giá regex
 ```
 
 ---
 
-## 4. Vận hành & Kiểm thử
+## 4. Chuẩn Giao diện (UI Design Standard)
+
+Giao diện là **PySide6 + PySide6-Fluent-Widgets (`qfluentwidgets`)**, dựng hoàn toàn bằng Python trong [`ui_qt/main_window.py`](ui_qt/main_window.py) — không dùng file `.ui` (Qt Designer) nữa.
+
+- **Cửa sổ chính**: kế thừa `FluentWindow`, điều hướng bằng `NavigationItemPosition` thay cho `QTabWidget` ngang kiểu cũ.
+- **Widget Fluent**: `CardWidget`/`ElevatedCardWidget` cho khối nội dung, `PrimaryPushButton`/`FluentPushButton` cho nút bấm, `FluentIcon` cho icon, `TitleLabel`/`BodyLabel`/`CaptionLabel` cho chữ.
+- **Theme**: `ui_qt/theme.py` set nền `qdarktheme` (light) rồi phủ thêm QSS tùy biến cho KPI card, sidebar, bảng — token khai báo tập trung ở đầu file (`PRIMARY_COLOR`, `CONTROL_MIN_HEIGHT`, `CORNER_RADIUS`, ...).
+- **Đặc tả đầy đủ & mockup**: [`docs/fluent_ui_redesign/SPEC_LAYOUT_FLUENT_UI.md`](docs/fluent_ui_redesign/SPEC_LAYOUT_FLUENT_UI.md).
+- **Kiểm tra hồi quy giao diện**: `./.venv/Scripts/python.exe ./tools/inspect_ui_style.py` để dump metric/màu thực tế của widget.
+
+> [!IMPORTANT]
+> Mọi thay đổi giao diện đi trực tiếp vào `ui_qt/main_window.py` và `ui_qt/theme.py`. Không tạo lại file `.ui` hay tài liệu spec song song khác — tài liệu rời rạc sẽ lệch khỏi code rất nhanh.
+
+---
+
+## 5. Vận hành & Kiểm thử
 
 - **Khởi chạy ứng dụng**:
   ```cmd

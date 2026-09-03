@@ -8,16 +8,6 @@ downloads/
 logs/
 output/
 runs/
-.venv/
-__pycache__/
-*.pyc
-.env
-.ui_setup_state.json
-.ui_setup_state_pyqt6.json
-downloads/
-logs/
-output/
-runs/
 upload_runs/
 _release/
 registry.sqlite3
