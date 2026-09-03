@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from threading import Event
@@ -156,6 +157,28 @@ class _FakePreparePage:
 
     def close(self):
         self.close_calls += 1
+
+
+class _FakeTrackedPage:
+    def __init__(self, *, url: str, token: str = ""):
+        self.url = url
+        self.token = token
+        self.handlers: dict[str, object] = {}
+        self.closed = False
+
+    def on(self, event: str, callback):
+        self.handlers[event] = callback
+
+    def evaluate(self, script: str):
+        if "localStorage" in script:
+            return self.token
+        return "complete"
+
+    def is_closed(self):
+        return self.closed
+
+    def close(self):
+        self.closed = True
 
 
 class _FakeBrowserForContext:
@@ -515,8 +538,8 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
                 "ND_BASE_URL": "https://example.test",
                 "ND_LOGIN_URL": "https://example.test/login",
                 "ND_CREATE_URL": "https://example.test/create",
-                "ND_USERNAME": "operator",
-                "ND_PASSWORD": "secret",
+                "ND_USERNAME": "old-operator",
+                "ND_PASSWORD": "old-secret",
                 "ND_STORAGE_STATE_PATH": "nd_storage_state.json",
                 "ND_MAX_PREPARED_TABS": "7",
                 "ND_POST_PREPARE_DELAY_MS": "2500",
@@ -529,11 +552,62 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
         self.assertEqual(settings.base_url, "https://example.test")
         self.assertEqual(settings.login_url, "https://example.test/login")
         self.assertEqual(settings.create_url, "https://example.test/create")
-        self.assertEqual(settings.username, "operator")
-        self.assertEqual(settings.password, "secret")
         self.assertEqual(settings.max_prepared_tabs, 7)
         self.assertEqual(settings.post_prepare_delay_ms, 2500)
         self.assertEqual(settings.storage_state_path, (self.workdir / "nd_storage_state.json").resolve())
+        env_text = (self.workdir / ".env").read_text(encoding="utf-8")
+        self.assertNotIn("ND_USERNAME", env_text)
+        self.assertNotIn("ND_PASSWORD", env_text)
+
+    def test_manual_login_saves_storage_state_after_token_and_redirect(self):
+        session = NamDinhUploaderSession(
+            load_uploader_settings(self.workdir),
+            working_dir=self.workdir,
+            log_callback=lambda _msg: None,
+        )
+        saved_paths: list[str] = []
+        session.context = SimpleNamespace(storage_state=lambda *, path: saved_paths.append(path))
+        page = _FakeTrackedPage(url="https://example.test/home", token="jwt-token")
+        session.login_page = page
+        session.login_started_at = time.monotonic()
+
+        with patch.object(session, "_is_login_page", return_value=False):
+            result = session.poll_manual_login()
+
+        self.assertEqual(result["status"], "authenticated")
+        self.assertEqual(saved_paths, [str(session.settings.storage_state_path)])
+
+    def test_saved_prepared_page_is_finalized_and_closed(self):
+        run_id = "run-save-detect"
+        output_path = make_output_json(
+            self.workdir / "output" / "save-detect.json",
+            contract_no="601/2026/CCGD",
+            file_goc=str(self.root / "save-detect.docx"),
+        )
+        record_id = self._seed_record(
+            file_key="save-detect",
+            run_id=run_id,
+            contract_no="601/2026/CCGD",
+            status="prepared_dry_run",
+            output_json_path=output_path,
+        )
+        session = NamDinhUploaderSession(
+            load_uploader_settings(self.workdir),
+            working_dir=self.workdir,
+            log_callback=lambda _msg: None,
+        )
+        page = _FakeTrackedPage(url=session.settings.create_url)
+        record = SimpleNamespace(record_id=record_id, contract_no="601/2026/CCGD")
+        artifact_dir = self.workdir / "upload_runs" / "save-detect"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        session._register_prepared_page(record, page, artifact_dir)
+        session.prepared_pages[record_id].save_response_ok = True
+
+        result = session.poll_prepared_pages()
+
+        self.assertEqual(result["saved_record_ids"], [record_id])
+        self.assertTrue(page.closed)
+        self.assertEqual(get_row_by_id(self.conn, record_id)["status"], "uploaded_success")
 
     def test_get_uploader_setup_status_tracks_storage_state(self):
         save_uploader_env(
@@ -686,7 +760,7 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
         self.assertEqual(row["reason"], "Dry-run prepared")
         self.assertTrue(row["artifact_dir"])
         self.assertTrue(json.loads(row["verify_json"]))
-        self.assertIn("Hay ra soat, luu, finalize", summary["message"])
+        self.assertIn("bam Luu tren web", summary["message"])
         self.assertNotIn("dong browser", summary["message"])
 
     def test_prepare_manifest_continues_with_next_unprepared_chunk(self):

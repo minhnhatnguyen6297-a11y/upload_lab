@@ -83,8 +83,8 @@ flowchart LR
     Page2 --> P2_Cmd[Command Bar: Chọn thiếu / Lọc lỗi / Upload]
     Page2 --> P2_Queue[Bảng Hàng Đợi Upload Checkbox]
 
-    Page3 --> P3_Acc[Card Tài khoản & URL Web]
-    Page3 --> P3_Eng[Card Trạng thái Playwright & Tùy chọn]
+    Page3 --> P3_Acc[Card Đăng nhập thủ công & URL Web]
+    Page3 --> P3_Eng[Card Kiểm tra môi trường & Playwright]
 ```
 
 ### Chi tiết các phân hệ màn hình
@@ -122,9 +122,10 @@ flowchart LR
   - Cột 6: Thao tác nhanh (Xem JSON, Mở file Word gốc).
 
 #### Màn hình 3: Cấu hình Hệ thống & Trình duyệt (Settings)
-- Quản lý tài khoản đăng nhập web quản lý công chứng (`.env`).
-- Kiểm tra trạng thái Playwright Browser Engine (`Sẵn sàng` / `Cần cài đặt`).
-- Tùy chọn nâng cao: Kích thước batch upload (slider), Chế độ Headless, Tự động mở lại trình duyệt khi ngắt kết nối.
+- Chỉ quản lý địa chỉ web; không lưu tên đăng nhập hoặc mật khẩu trong app hay `.env`.
+- Nút chính `Kiểm tra môi trường và mở đăng nhập`. Lần đăng nhập đầu tiên luôn chạy kiểm tra trước.
+- Hiển thị trạng thái Playwright Browser Engine (`Sẵn sàng` / `Cần cài đặt`), kết quả từng kiểm tra và nút `Sao chép chẩn đoán` để gửi cho bộ phận hỗ trợ.
+- Tùy chọn: số tab mở mỗi đợt (1–30). Không có chế độ headless cho luồng người dùng, vì người dùng phải tự xem và bấm Lưu trên web.
 
 #### Màn hình 4: Nhật ký Hệ thống (Logs & Diagnostics)
 - Cửa sổ Console phong cách Terminal Windows 11 với cú pháp phân loại màu (`INFO` xanh, `WARN` vàng, `ERROR` đỏ, `SUCCESS` xanh lá).
@@ -177,3 +178,51 @@ flowchart LR
 2. **Bước 2**: Xác nhận lựa chọn phương án công nghệ (Phương án 1 dùng `PySide6-Fluent-Widgets` hay Phương án 2 dùng `Pure PySide6 Custom Fluent`).
 3. **Bước 3**: Triển khai mã nguồn cấu trúc UI mới (`ui_qt/`), xây dựng Navigation Sidebar, các Card & Table theo layout chuẩn.
 4. **Bước 4**: Kết nối đầy đủ các Worker, Signal, Threading và kiểm thử toàn bộ 92 unit tests đảm bảo ổn định 100%.
+
+---
+
+## 8. Kiểm tra môi trường trước lần đăng nhập đầu
+
+### Mục đích
+
+Đăng nhập là luồng phối hợp giữa app Upload Lab, Playwright, Chromium, mạng của văn phòng và website công chứng. Vì vậy, khi người dùng bấm đăng nhập lần đầu (hoặc bấm `Kiểm tra lại`), app phải chạy một bộ kiểm tra ngắn trong nền trước khi cho rằng lỗi là do người dùng.
+
+Người dùng thường dùng máy văn phòng Windows 10. Màn hình chỉ được hiển thị kết quả đơn giản: **Đạt**, **Cần chú ý** hoặc **Không thể đăng nhập**, kèm cách xử lý bằng tiếng Việt dễ hiểu. Không được làm app tự thoát khi một bước lỗi.
+
+### Luồng trải nghiệm
+
+1. Người dùng nhập hoặc xác nhận địa chỉ web, rồi bấm **Kiểm tra môi trường và mở đăng nhập**.
+2. App khóa riêng nút đăng nhập, nhưng vẫn giữ cửa sổ chính hoạt động; kiểm tra chạy trong `EnvironmentCheckWorker`.
+3. Nếu các bước bắt buộc đều đạt, chính Chromium vừa được kiểm tra sẽ mở trang đăng nhập. Không mở một trình duyệt thứ hai.
+4. Nếu có lỗi, app giữ nguyên cửa sổ, hiển thị bước lỗi, nút **Thử lại**, nút **Sao chép chẩn đoán** và hướng dẫn ngắn. Trình duyệt đang mở chỉ đóng khi người dùng bấm đóng browser.
+5. Lưu một báo cáo JSON đã lọc thông tin nhạy cảm trong `logs/environment-check-<time>.json`. Không ghi mật khẩu, token, cookie, query string hay nội dung hồ sơ.
+
+### Danh sách kiểm tra
+
+| Nhóm | Kiểm tra cụ thể | Mức khi lỗi | Cách báo cho người dùng |
+|---|---|---|---|
+| Hệ điều hành | Windows, bản 64-bit, phiên bản Windows và dung lượng RAM | Cảnh báo nếu Windows 10 hoặc RAM dưới 4 GB | “Máy vẫn có thể chạy, nhưng có thể chậm. Đóng bớt ứng dụng trước khi upload.” |
+| Thư mục làm việc | Có quyền tạo/ghi/xóa tệp thử trong thư mục app; tạo được `logs`, `downloads`, `nd_storage_state.json` | Chặn | “App không có quyền ghi dữ liệu. Hãy chuyển app sang thư mục bạn có quyền, ví dụ Documents.” |
+| Dung lượng đĩa | Dung lượng trống ở ổ chứa app và vùng lưu browser | Cảnh báo dưới 1 GB; chặn dưới 500 MB | “Cần dọn thêm dung lượng trước khi tải Excel hoặc mở browser.” |
+| Python và thư viện | Import được PySide6, Playwright và các gói app cần dùng | Chặn | “Bản cài đặt app chưa đầy đủ. Hãy chạy công cụ sửa cài đặt hoặc liên hệ hỗ trợ.” |
+| Chromium của Playwright | Tìm được file Chromium đúng phiên bản đi kèm, mở được cửa sổ thật, tạo context và trang trống rồi đóng an toàn | Chặn | “Không mở được Chromium của app. Có thể thiếu browser, bị antivirus chặn hoặc bản cài đặt lỗi.” |
+| Chrome/Edge cài sẵn | Chỉ ghi nhận tên và phiên bản nếu có; chỉ kiểm tra kỹ khi người dùng đã chọn kênh `chrome` hoặc `msedge` | Cảnh báo, không chặn ở cấu hình mặc định | “Chrome cài sẵn không bắt buộc. App đang dùng Chromium đi kèm để ổn định hơn.” |
+| Mạng và DNS | Phân giải được tên miền của URL; kiểm tra kết nối HTTPS trong thời gian tối đa 10 giây | Chặn | “Không kết nối được website. Kiểm tra mạng, VPN hoặc hỏi bộ phận IT về firewall/proxy.” |
+| Website bằng đúng browser | Dùng chính Chromium vừa mở để vào `/dang-nhap`, chờ `domcontentloaded` tối đa 15 giây và đọc mã/lỗi điều hướng | Chặn | Hiển thị lỗi thật như `DNS`, `timeout`, `certificate` hoặc `ERR_NETWORK_ACCESS_DENIED`; không ghi URL có query. |
+| Proxy, chứng chỉ và chính sách công ty | Ghi nhận có proxy từ biến môi trường/Windows và chỉ ghi tên lỗi chứng chỉ hoặc lỗi launch, không ghi thông tin xác thực proxy | Cảnh báo hoặc chặn theo kết quả vào trang web | “Mạng công ty đang chặn hoặc kiểm tra kết nối. Gửi báo cáo chẩn đoán cho IT.” |
+
+### Quy tắc kỹ thuật
+
+- Bài kiểm tra website bằng Chromium là kết quả quyết định, vì kiểm tra mạng bằng Python có thể đi qua proxy khác trình duyệt.
+- Chromium đi kèm Playwright là mặc định; không bắt buộc phải cài Google Chrome. Playwright yêu cầu cài browser binary tương ứng với phiên bản thư viện và có thể dùng Chrome/Edge theo kênh riêng khi được cấu hình. [Tài liệu Playwright](https://playwright.dev/python/docs/browsers)
+- Không tự cài Chromium, Chrome, driver, chứng chỉ hoặc thay đổi firewall trong lúc kiểm tra. Các hành động này có thể cần quyền IT.
+- Playwright hiện chỉ liệt kê Windows 11+ là hệ điều hành được hỗ trợ chính thức. Với Windows 10, Upload Lab phải hiện nhãn **Tương thích có kiểm tra**, ghim phiên bản Playwright/Chromium đã được kiểm thử và không tự nâng cấp chúng. [Yêu cầu hệ thống Playwright](https://playwright.dev/python/docs/intro)
+- Mọi bước có thời hạn rõ ràng, không quá 15 giây cho một bước mạng. Khi hết thời gian phải trả kết quả lỗi có thể thử lại, không treo giao diện.
+- Báo cáo gồm: thời gian, phiên bản app/Python/Playwright, phiên bản Windows, kênh browser, các bước đạt/lỗi, mã lỗi ngắn và hướng dẫn. Báo cáo tuyệt đối không chứa dữ liệu đăng nhập hay hồ sơ.
+
+### Tiêu chí chấp nhận
+
+1. Trên máy thiếu Chromium, không có mạng hoặc URL sai, app vẫn mở và cho phép người dùng thử lại; không được tự thoát.
+2. Trên máy Windows 10 văn phòng, kết quả phải chỉ ra rõ ràng đó là cảnh báo tương thích hay lỗi chặn đăng nhập.
+3. Khi mọi bước đạt, chỉ một Chromium được mở và được dùng tiếp cho đăng nhập, tải Excel và upload.
+4. Bộ kiểm tra có unit test cho từng lỗi và test tích hợp có mạng giả lập cho các trường hợp DNS lỗi, timeout, proxy/chứng chỉ lỗi và browser không mở được.

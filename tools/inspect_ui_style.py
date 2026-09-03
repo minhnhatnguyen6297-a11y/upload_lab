@@ -104,7 +104,7 @@ def main() -> int:
         ):
             dump_widget(name, window.ui.findChild(QPushButton, name))
 
-        for name in ("notaryComboBox", "secretaryComboBox"):
+        for name in ("notaryComboBox",):
             dump_widget(name, window.ui.findChild(QComboBox, name))
 
         for name in (

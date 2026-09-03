@@ -28,7 +28,6 @@ class QtUIStructureTests(unittest.TestCase):
         self.assertTrue(Path("ui_qt/main_window.py").exists())
         self.assertTrue(Path("ui_qt/widgets.py").exists())
         self.assertTrue(Path("ui_qt/workers.py").exists())
-        self.assertTrue(Path("ui_qt/forms/main_window.ui").exists())
 
     def test_qt_entrypoint_imports(self):
         from ui_qt.app import run_qt_app
@@ -103,7 +102,7 @@ class QtUIStructureTests(unittest.TestCase):
             ("continueUploadButton", QPushButton),
             ("closeUploadBrowserButton", QPushButton),
             ("notaryComboBox", QComboBox),
-            ("secretaryComboBox", QComboBox),
+            ("secretaryEdit", QLineEdit),
             ("refreshStaffOptionsButton", QPushButton),
             ("uploadProgressBar", QProgressBar),
             ("uploadProgressLabel", QLabel),
@@ -256,7 +255,7 @@ class QtUIStructureTests(unittest.TestCase):
             self.assertEqual(window.folderNumberSelection.selected_record_ids(), [])
         self.assertIsNotNone(app)
 
-    def test_download_excel_from_web_sets_path_and_loads_excel(self):
+    def test_download_excel_from_web_queues_work_in_upload_thread(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
         from PySide6.QtWidgets import QApplication
@@ -269,22 +268,15 @@ class QtUIStructureTests(unittest.TestCase):
             window = UploadLabMainWindow(working_dir=temp_root)
             window.fromDateEdit.setText("01/01/2026")
             window.toDateEdit.setText("18/06/2026")
-            export_path = temp_root / "downloads" / "book.xlsx"
-
-            with patch.object(window, "ensure_upload_runtime_ready", return_value=True), patch(
-                "ui_qt.main_window.download_contract_book_export",
-                return_value=export_path,
-            ) as mocked_download, patch.object(window, "load_excel") as mocked_load_excel:
+            emitted_commands = []
+            window.downloadExcelRequested.connect(emitted_commands.append)
+            with patch.object(window, "ensure_upload_runtime_ready", return_value=True), patch.object(
+                window, "_ensure_upload_worker"
+            ):
                 window.download_excel_from_web()
 
-            mocked_download.assert_called_once_with(
-                from_date="01/01/2026",
-                to_date="18/06/2026",
-                working_dir=temp_root,
-                log_callback=window._log_message,
-            )
-            self.assertEqual(window.excelPathEdit.text(), str(export_path))
-            mocked_load_excel.assert_called_once_with()
+            self.assertEqual(emitted_commands, [{"from_date": "01/01/2026", "to_date": "18/06/2026"}])
+            self.assertFalse(window.downloadExcelButton.isEnabled())
         self.assertIsNotNone(app)
 
     def test_upload_selected_queues_prepare_without_calling_session_on_gui_thread(self):
@@ -334,18 +326,15 @@ class QtUIStructureTests(unittest.TestCase):
             self.assertFalse(window.closeUploadBrowserButton.isEnabled())
         self.assertIsNotNone(app)
 
-    def test_upload_worker_owns_stop_event_across_qthread(self):
+    def test_upload_worker_owns_stop_event_on_dedicated_python_thread(self):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-        from PySide6.QtCore import QEventLoop, QObject, QThread, QTimer, Signal
+        from PySide6.QtCore import QEventLoop, QTimer
         from PySide6.QtWidgets import QApplication
 
         from ui_qt.workers import UploadWorker
 
         app = QApplication.instance() or QApplication([])
-
-        class Sender(QObject):
-            command = Signal(object)
 
         class FakeSession:
             def __init__(self):
@@ -355,19 +344,23 @@ class QtUIStructureTests(unittest.TestCase):
                 self.command = (manifest_path, stop_event, kwargs)
                 return {"prepared_count": 1, "remaining": 0}
 
+            def poll_manual_login(self):
+                return {"status": "idle"}
+
+            def poll_prepared_pages(self):
+                return {"saved_record_ids": [], "closed_record_ids": [], "open_record_ids": []}
+
+            def close(self):
+                return None
+
         with tempfile.TemporaryDirectory() as temp_dir:
             worker = UploadWorker(Path(temp_dir))
             fake_session = FakeSession()
             worker._ensure_session = lambda: fake_session
-            thread = QThread()
-            sender = Sender()
             loop = QEventLoop()
             result = []
-            worker.moveToThread(thread)
-            sender.command.connect(worker.prepare)
             worker.prepared.connect(lambda summary: (result.append(summary), loop.quit()))
-            thread.start()
-            sender.command.emit(
+            worker.prepare(
                 {
                     "manifest_path": "manifest.json",
                     "selected_record_ids": [11, 12],
@@ -378,8 +371,7 @@ class QtUIStructureTests(unittest.TestCase):
             )
             QTimer.singleShot(3000, loop.quit)
             loop.exec()
-            thread.quit()
-            self.assertTrue(thread.wait(3000))
+            worker.close_session()
 
             self.assertEqual(result, [{"prepared_count": 1, "remaining": 0}])
             self.assertIs(fake_session.command[1], worker.stop_event)
@@ -526,7 +518,7 @@ class QtUIStructureTests(unittest.TestCase):
 
         event = MagicMock()
         with patch("ui_qt.main_window.QMessageBox.information") as mocked_info, patch(
-            "ui_qt.main_window.QMainWindow.closeEvent"
+            "ui_qt.main_window.FluentWindow.closeEvent"
         ) as mocked_super_close:
             window.closeEvent(event)
 
@@ -552,7 +544,7 @@ class QtUIStructureTests(unittest.TestCase):
 
         event = MagicMock()
         with patch("ui_qt.main_window.QMessageBox.information") as mocked_info, patch(
-            "ui_qt.main_window.QMainWindow.closeEvent"
+            "ui_qt.main_window.FluentWindow.closeEvent"
         ) as mocked_super_close:
             window.closeEvent(event)
 

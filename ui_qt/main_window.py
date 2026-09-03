@@ -6,22 +6,18 @@ from pathlib import Path
 from typing import cast
 
 from PySide6.QtCore import QThread, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontDatabase
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QApplication,
     QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
-    QHeaderView,
-    QLabel,
     QLineEdit,
-    QMainWindow,
     QMessageBox,
     QPushButton,
-    QStackedWidget,
+    QSpinBox,
+    QSplitter,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -35,22 +31,13 @@ from qfluentwidgets import (
     ElevatedCardWidget,
     FluentIcon as FIF,
     FluentWindow,
-    HeaderCardWidget,
-    InfoBadge,
-    InfoBar,
-    InfoBarPosition,
     LineEdit as FluentLineEdit,
     NavigationItemPosition,
-    Pivot,
     PlainTextEdit as FluentPlainTextEdit,
     PrimaryPushButton,
     ProgressBar as FluentProgressBar,
     PushButton as FluentPushButton,
-    SegmentedWidget,
-    SubtitleLabel,
-    TableWidget as FluentTableWidget,
     TitleLabel,
-    TransparentPushButton,
     setTheme,
     Theme,
     setThemeColor,
@@ -61,13 +48,12 @@ from playwright_uploader import (
     NamDinhUploaderSession,
     default_export_from_date,
     default_export_to_date,
-    download_contract_book_export,
     ensure_uploader_env_file,
     get_uploader_setup_status,
     load_upload_queue,
     probe_playwright_runtime,
     read_uploader_env,
-    save_uploader_env,
+    update_uploader_env,
 )
 from ui.services.contract_book_audit import analyze_contract_book
 from ui.services.scan_classification_service import FolderScanRow, classify_scan_records
@@ -91,6 +77,8 @@ class UploadLabMainWindow(FluentWindow):
     refreshStaffOptionsRequested = Signal()
     reloadStaffOptionsRequested = Signal()
     closeUploadRequested = Signal()
+    startLoginRequested = Signal()
+    downloadExcelRequested = Signal(object)
 
     def __init__(self, *, working_dir: Path = BASE_DIR):
         super().__init__()
@@ -111,15 +99,21 @@ class UploadLabMainWindow(FluentWindow):
         self.uploadWorker: UploadWorker | None = None
         self.uploadSessionActive = False
         self.uploadBusy = False
+        self.scanBusy = False
         self.uploadCloseRequested = False
         self.activeUploadSelectedRecordIds: set[int] = set()
+        self.openPreparedRecordIds: set[int] = set()
         self.uploadRemainingCount = 0
         self.playwright_ready = False
         self.playwright_message = ""
         self.uploader_status: dict[str, object] = {}
-
         self.setWindowTitle("Upload Lab")
-        self.resize(1300, 880)
+        self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
+        # Cho phep Windows snap (Win+Left/Right, keo vao goc desktop) thu nho cua so:
+        # khong dat gioi han tren, minimum du nho de moi vung snap deu hop le.
+        self.setMinimumSize(760, 520)
+        self.setMaximumSize(16_777_215, 16_777_215)
+        self.resize(1280, 820)
 
         setTheme(Theme.LIGHT)
         setThemeColor("#0067C0")
@@ -277,78 +271,64 @@ class UploadLabMainWindow(FluentWindow):
         data_card_layout.setContentsMargins(16, 14, 16, 14)
         data_card_layout.setSpacing(10)
 
-        self.excelPivot = Pivot(data_card)
-        self.excelPivot.addItem(routeKey="display", text="Danh sách Excel (0)")
-        self.excelPivot.addItem(routeKey="missing", text="Số còn thiếu (0)")
-        self.excelPivot.addItem(routeKey="issue", text="Số lỗi, trùng (0)")
-        self.excelPivot.setCurrentItem("display")
-        data_card_layout.addWidget(self.excelPivot)
-
-        self.excelTableStack = QStackedWidget(data_card)
+        self.excelSplitter = QSplitter(Qt.Orientation.Vertical, data_card)
+        self.excelSplitter.setObjectName("excelSplitter")
+        self.excelSplitter.setChildrenCollapsible(False)
 
         # 1. Display Table Panel
-        self.excelDisplayPanel = QWidget(self.excelTableStack)
+        self.excelDisplayPanel = QWidget(self.excelSplitter)
         self.excelDisplayPanel.setObjectName("excelDisplayPanel")
         p1_l = QVBoxLayout(self.excelDisplayPanel)
         p1_l.setObjectName("excelDisplayLayout")
         p1_l.setContentsMargins(0, 0, 0, 0)
-        self.excelDisplayLabel = CaptionLabel("Danh sach Excel", self.excelDisplayPanel)
+        self.excelDisplayLabel = CaptionLabel("Danh sách Excel (0)", self.excelDisplayPanel)
         self.excelDisplayLabel.setObjectName("excelDisplayLabel")
-        self.excelDisplayLabel.hide()
         p1_l.addWidget(self.excelDisplayLabel)
         self.excelDisplayTable = QTableWidget(self.excelDisplayPanel)
         self.excelDisplayTable.setObjectName("excelDisplayTable")
         self.excelDisplayTable.horizontalHeader().setStretchLastSection(True)
         self.excelDisplayTable.setAlternatingRowColors(True)
         p1_l.addWidget(self.excelDisplayTable)
-        self.excelTableStack.addWidget(self.excelDisplayPanel)
+        self.excelSplitter.addWidget(self.excelDisplayPanel)
 
         # 2. Missing Table Panel
-        self.excelMissingPanel = QWidget(self.excelTableStack)
+        self.excelMissingPanel = QWidget(self.excelSplitter)
         self.excelMissingPanel.setObjectName("excelMissingPanel")
         p2_l = QVBoxLayout(self.excelMissingPanel)
         p2_l.setObjectName("excelMissingLayout")
         p2_l.setContentsMargins(0, 0, 0, 0)
-        self.excelMissingLabel = CaptionLabel("So con thieu", self.excelMissingPanel)
+        self.excelMissingLabel = CaptionLabel("Số còn thiếu (0)", self.excelMissingPanel)
         self.excelMissingLabel.setObjectName("excelMissingLabel")
-        self.excelMissingLabel.hide()
         p2_l.addWidget(self.excelMissingLabel)
         self.excelMissingTable = QTableWidget(self.excelMissingPanel)
         self.excelMissingTable.setObjectName("excelMissingTable")
         self.excelMissingTable.horizontalHeader().setStretchLastSection(True)
         self.excelMissingTable.setAlternatingRowColors(True)
         p2_l.addWidget(self.excelMissingTable)
-        self.excelTableStack.addWidget(self.excelMissingPanel)
+        self.excelSplitter.addWidget(self.excelMissingPanel)
 
         # 3. Issue Table Panel
-        self.excelIssuePanel = QWidget(self.excelTableStack)
+        self.excelIssuePanel = QWidget(self.excelSplitter)
         self.excelIssuePanel.setObjectName("excelIssuePanel")
         p3_l = QVBoxLayout(self.excelIssuePanel)
         p3_l.setObjectName("excelIssueLayout")
         p3_l.setContentsMargins(0, 0, 0, 0)
-        self.excelIssueLabel = CaptionLabel("So loi, trung", self.excelIssuePanel)
+        self.excelIssueLabel = CaptionLabel("Số lỗi, trùng (0)", self.excelIssuePanel)
         self.excelIssueLabel.setObjectName("excelIssueLabel")
-        self.excelIssueLabel.hide()
         p3_l.addWidget(self.excelIssueLabel)
         self.excelIssueTable = QTableWidget(self.excelIssuePanel)
         self.excelIssueTable.setObjectName("excelIssueTable")
         self.excelIssueTable.horizontalHeader().setStretchLastSection(True)
         self.excelIssueTable.setAlternatingRowColors(True)
         p3_l.addWidget(self.excelIssueTable)
-        self.excelTableStack.addWidget(self.excelIssuePanel)
+        self.excelSplitter.addWidget(self.excelIssuePanel)
 
-        data_card_layout.addWidget(self.excelTableStack, 1)
+        self.excelSplitter.setStretchFactor(0, 3)
+        self.excelSplitter.setStretchFactor(1, 2)
+        self.excelSplitter.setStretchFactor(2, 2)
+
+        data_card_layout.addWidget(self.excelSplitter, 1)
         layout.addWidget(data_card, 1)
-
-        self.excelPivot.currentItemChanged.connect(self._handle_excel_pivot_changed)
-
-    def _handle_excel_pivot_changed(self, route_key: str) -> None:
-        if route_key == "display":
-            self.excelTableStack.setCurrentIndex(0)
-        elif route_key == "missing":
-            self.excelTableStack.setCurrentIndex(1)
-        elif route_key == "issue":
-            self.excelTableStack.setCurrentIndex(2)
 
     def _setup_folder_tab_ui(self) -> None:
         layout = QVBoxLayout(self.folderTab)
@@ -404,14 +384,27 @@ class UploadLabMainWindow(FluentWindow):
         self.secretaryLabel.setObjectName("secretaryLabel")
         row2.addWidget(self.secretaryLabel)
 
-        self.secretaryComboBox = QComboBox(config_card)
-        self.secretaryComboBox.setObjectName("secretaryComboBox")
-        self.secretaryComboBox.setFixedWidth(200)
-        row2.addWidget(self.secretaryComboBox)
+        # Thu ky la nhan vien thuong, hay thay doi -> cho nhap tay thay vi danh sach cung.
+        self.secretaryEdit = FluentLineEdit(config_card)
+        self.secretaryEdit.setObjectName("secretaryEdit")
+        self.secretaryEdit.setPlaceholderText("Nhập tên thư ký...")
+        self.secretaryEdit.setFixedWidth(200)
+        row2.addWidget(self.secretaryEdit)
 
         self.refreshStaffOptionsButton = FluentPushButton(FIF.SYNC, "Cập nhật danh sách", config_card)
         self.refreshStaffOptionsButton.setObjectName("refreshStaffOptionsButton")
         row2.addWidget(self.refreshStaffOptionsButton)
+
+        self.uploadChunkSizeLabel = CaptionLabel("So tab moi lan:", config_card)
+        self.uploadChunkSizeLabel.setObjectName("uploadChunkSizeLabel")
+        row2.addWidget(self.uploadChunkSizeLabel)
+
+        self.uploadChunkSizeSpinBox = QSpinBox(config_card)
+        self.uploadChunkSizeSpinBox.setObjectName("uploadChunkSizeSpinBox")
+        self.uploadChunkSizeSpinBox.setRange(1, 30)
+        self.uploadChunkSizeSpinBox.setValue(10)
+        self.uploadChunkSizeSpinBox.setFixedWidth(74)
+        row2.addWidget(self.uploadChunkSizeSpinBox)
         row2.addStretch(1)
         cl.addLayout(row2)
 
@@ -598,6 +591,11 @@ class UploadLabMainWindow(FluentWindow):
 
     def _connect_folder_tab(self) -> None:
         self._apply_staff_options(NamDinhUploaderSession.load_staff_options_cache(self.working_dir))
+        values = read_uploader_env(self.working_dir, ensure_exists=True)
+        try:
+            self.uploadChunkSizeSpinBox.setValue(max(1, min(int(values.get("ND_MAX_PREPARED_TABS") or 10), 30)))
+        except ValueError:
+            self.uploadChunkSizeSpinBox.setValue(10)
 
         self.browseFolderButton.clicked.connect(self.browse_folder)
         self.scanFolderButton.clicked.connect(self.start_folder_scan)
@@ -610,6 +608,7 @@ class UploadLabMainWindow(FluentWindow):
         self.closeUploadBrowserButton.clicked.connect(self.close_upload_browser)
         self.refreshStaffOptionsButton.clicked.connect(self.refresh_staff_options)
         self.stopUploadButton.clicked.connect(self.stop_upload)
+        self.uploadChunkSizeSpinBox.valueChanged.connect(self._save_upload_chunk_size)
 
         self.folderNumbersTable.cellDoubleClicked.connect(
             lambda row, _column: self._open_scan_table_source_file(self.folderNumbersTable, row)
@@ -624,17 +623,17 @@ class UploadLabMainWindow(FluentWindow):
             self.kpiMissingVal.setText(f"{summary.missing_count:,}")
             self.kpiIssueVal.setText(f"{summary.issue_count + summary.duplicate_count:,}")
 
-            self.excelPivot.setItemText("display", f"Danh sách Excel ({summary.excel_total})")
-            self.excelPivot.setItemText("missing", f"Số còn thiếu ({summary.missing_count})")
-            self.excelPivot.setItemText("issue", f"Số lỗi, trùng ({summary.issue_count + summary.duplicate_count})")
+            self.excelDisplayLabel.setText(f"Danh sách Excel ({summary.excel_total})")
+            self.excelMissingLabel.setText(f"Số còn thiếu ({summary.missing_count})")
+            self.excelIssueLabel.setText(f"Số lỗi, trùng ({summary.issue_count + summary.duplicate_count})")
         else:
             self.kpiTotalVal.setText("0")
             self.kpiValidVal.setText("0")
             self.kpiMissingVal.setText("0")
             self.kpiIssueVal.setText("0")
-            self.excelPivot.setItemText("display", "Danh sách Excel (0)")
-            self.excelPivot.setItemText("missing", "Số còn thiếu (0)")
-            self.excelPivot.setItemText("issue", "Số lỗi, trùng (0)")
+            self.excelDisplayLabel.setText("Danh sách Excel (0)")
+            self.excelMissingLabel.setText("Số còn thiếu (0)")
+            self.excelIssueLabel.setText("Số lỗi, trùng (0)")
 
     def _reset_excel_results(self, summary_text: str) -> None:
         self.contract_book_analysis = None
@@ -694,64 +693,48 @@ class UploadLabMainWindow(FluentWindow):
         self.refresh_runtime_status()
         values = read_uploader_env(self.working_dir, ensure_exists=True)
         dialog = QDialog(self)
-        dialog.setWindowTitle("Cau hinh uploader")
+        dialog.setWindowTitle("Cau hinh dang nhap")
         dialog.setModal(True)
 
         root_layout = QVBoxLayout(dialog)
         form_layout = QFormLayout()
         root_layout.addLayout(form_layout)
 
-        keys = [
-            "ND_BASE_URL",
-            "ND_LOGIN_URL",
-            "ND_CREATE_URL",
-            "ND_USERNAME",
-            "ND_PASSWORD",
-            "ND_STORAGE_STATE_PATH",
-            "ND_BROWSER_CHANNEL",
-            "ND_MAX_PREPARED_TABS",
-        ]
-        field_edits: dict[str, QLineEdit] = {}
-        for key in keys:
-            edit = QLineEdit(str(values.get(key, "")), dialog)
-            if key == "ND_PASSWORD":
-                edit.setEchoMode(QLineEdit.EchoMode.Password)
-            field_edits[key] = edit
-            form_layout.addRow(key, edit)
-
-        status_label = QLabel(self.runtime_summary(), dialog)
-        root_layout.addWidget(status_label)
+        base_url_edit = QLineEdit(str(values.get("ND_BASE_URL", "")), dialog)
+        form_layout.addRow("Dia chi web", base_url_edit)
 
         button_row = QHBoxLayout()
         root_layout.addLayout(button_row)
 
         def save_only() -> None:
-            save_uploader_env({key: edit.text() for key, edit in field_edits.items()}, base_dir=self.working_dir)
+            update_uploader_env(
+                {
+                    "ND_BASE_URL": base_url_edit.text().strip(),
+                    "ND_LOGIN_URL": "",
+                    "ND_CREATE_URL": "",
+                },
+                base_dir=self.working_dir,
+            )
             self.refresh_runtime_status()
-            status_label.setText(self.runtime_summary())
             self._log_message("[SETUP] Da luu cau hinh uploader.")
 
-        def save_and_login() -> None:
+        def open_login() -> None:
             save_only()
             dialog.accept()
             self.uploadBusy = True
             self._ensure_upload_worker()
             self._sync_folder_upload_controls()
-            self.reloadStaffOptionsRequested.emit()
+            self.startLoginRequested.emit()
 
-        save_button = QPushButton("Luu", dialog)
+        save_button = QPushButton("Luu dia chi", dialog)
         save_button.clicked.connect(save_only)
         button_row.addWidget(save_button)
 
-        login_button = QPushButton("Luu va dang nhap", dialog)
-        login_button.clicked.connect(save_and_login)
+        login_button = QPushButton("Mo trinh duyet dang nhap", dialog)
+        login_button.clicked.connect(open_login)
         button_row.addWidget(login_button)
 
-        close_button = QPushButton("Dong", dialog)
-        close_button.clicked.connect(dialog.accept)
-        button_row.addWidget(close_button)
-
-        dialog.resize(760, 320)
+        dialog.resize(560, 130)
         dialog.exec()
 
     def download_excel_from_web(self) -> None:
@@ -760,14 +743,11 @@ class UploadLabMainWindow(FluentWindow):
 
         from_date = self.fromDateEdit.text().strip()
         to_date = self.toDateEdit.text().strip()
-        export_path = download_contract_book_export(
-            from_date=from_date,
-            to_date=to_date,
-            working_dir=self.working_dir,
-            log_callback=self._log_message,
-        )
-        self.excelPathEdit.setText(str(export_path))
-        self.load_excel()
+        self.uploadBusy = True
+        self.downloadExcelButton.setEnabled(False)
+        self._ensure_upload_worker()
+        self._sync_folder_upload_controls()
+        self.downloadExcelRequested.emit({"from_date": from_date, "to_date": to_date})
 
     def load_excel(self) -> None:
         path = self.excelPathEdit.text().strip()
@@ -829,7 +809,6 @@ class UploadLabMainWindow(FluentWindow):
         )
         if path:
             self.folderPathEdit.setText(path)
-            self.start_folder_scan()
 
     def start_folder_scan(self) -> None:
         folder_str = self.folderPathEdit.text().strip()
@@ -848,8 +827,8 @@ class UploadLabMainWindow(FluentWindow):
             return
 
         self._reset_folder_results("Dang scan folder...")
-        self.scanFolderButton.setEnabled(False)
-        self.browseFolderButton.setEnabled(False)
+        self.scanBusy = True
+        self._sync_folder_upload_controls()
 
         self.scanThread = QThread(self)
         self.scanWorker = FolderScanWorker(folder_path, self.working_dir)
@@ -857,20 +836,23 @@ class UploadLabMainWindow(FluentWindow):
 
         self.scanThread.started.connect(self.scanWorker.run)
         self.scanWorker.progress.connect(self._handle_scan_progress)
-        self.scanWorker.log.connect(self._log_message)
         self.scanWorker.finished.connect(self._handle_scan_finished)
-        self.scanWorker.error.connect(self._handle_scan_error)
+        self.scanWorker.failed.connect(self._handle_scan_error)
 
         self.scanThread.start()
 
-    def _handle_scan_progress(self, current: int, total: int, filename: str) -> None:
-        percent = int(current / total * 100) if total > 0 else 0
-        self.scanProgressBar.setValue(percent)
-        self.scanSummaryLabel.setText(f"Dang scan: {current}/{total} - {filename}")
+    def _handle_scan_progress(self, snapshot: dict) -> None:
+        processed = int(snapshot.get("processed_files") or 0)
+        total = int(snapshot.get("total_files") or 0)
+        self.scanProgressBar.setValue(int(processed / total * 100) if total > 0 else 0)
+        stats = dict(snapshot.get("stats") or {})
+        self.scanSummaryLabel.setText(
+            f"Dang scan: {processed}/{total} | candidates={stats.get('candidates_found', 0)}"
+        )
 
-    def _handle_scan_finished(self, manifest_path_str: str, record_count: int) -> None:
+    def _handle_scan_finished(self, manifest: dict, manifest_path: str) -> None:
         self._cleanup_scan_thread()
-        self.current_manifest_path = Path(manifest_path_str)
+        self.current_manifest_path = Path(manifest_path)
         self.scanProgressBar.setValue(100)
         self._refresh_scan_results_from_manifest()
 
@@ -881,14 +863,13 @@ class UploadLabMainWindow(FluentWindow):
         QMessageBox.critical(self, "Upload Lab", f"Loi scan folder:\n{error_message}")
 
     def _cleanup_scan_thread(self) -> None:
-        self.scanFolderButton.setEnabled(True)
-        self.browseFolderButton.setEnabled(True)
+        self.scanBusy = False
         if self.scanThread is not None:
             self.scanThread.quit()
             self.scanThread.wait()
             self.scanThread = None
         self.scanWorker = None
-
+        self._sync_folder_upload_controls()
     def _refresh_scan_results_from_manifest(self) -> None:
         if self.current_manifest_path is None:
             self._reset_folder_results("Chua co manifest scan.")
@@ -944,31 +925,40 @@ class UploadLabMainWindow(FluentWindow):
     def _sync_folder_upload_controls(self) -> None:
         selected_count = len(self.folderNumberSelection.selected_record_ids())
         has_rows = bool(self.folderNumberSelection.row_ids)
+        busy = self.uploadBusy or self.scanBusy
 
-        self.selectAllValidButton.setEnabled(not self.uploadBusy and has_rows)
-        self.clearValidSelectionButton.setEnabled(not self.uploadBusy and has_rows)
-        self.filterIssueNumbersButton.setEnabled(not self.uploadBusy and has_rows and bool(self.issueRecordIds))
+        # Chi khoa nut chon/quet thu muc khi dang scan, khong khoa theo trang thai upload.
+        self.browseFolderButton.setEnabled(not self.scanBusy)
+        self.scanFolderButton.setEnabled(not self.scanBusy)
+
+        self.selectAllValidButton.setEnabled(not busy and has_rows)
+        self.clearValidSelectionButton.setEnabled(not busy and has_rows)
+        self.filterIssueNumbersButton.setEnabled(not busy and has_rows and bool(self.issueRecordIds))
         self.filterIssueNumbersButton.setText(
             "Hoan tac loc so loi" if self.issueFilterPreviousSelection is not None else "Loc so loi"
         )
-        self.selectMissingExcelButton.setEnabled(not self.uploadBusy and has_rows)
+        self.selectMissingExcelButton.setEnabled(not busy and has_rows)
 
-        upload_enabled = not self.uploadBusy and has_rows and selected_count > 0
+        upload_enabled = not busy and has_rows and selected_count > 0
         self.uploadSelectedButton.setEnabled(upload_enabled)
         self.uploadSelectedButton.setText(f"Upload file da chon ({selected_count})")
 
         self.continueUploadButton.setEnabled(
-            not self.uploadBusy
+            not busy
             and self.uploadSessionActive
             and self.uploadRemainingCount > 0
             and bool(self.activeUploadSelectedRecordIds)
             and self.current_manifest_path is not None
         )
-        self.closeUploadBrowserButton.setEnabled(not self.uploadBusy and self.uploadSessionActive)
-        self.refreshStaffOptionsButton.setEnabled(not self.uploadBusy)
-        self.notaryComboBox.setEnabled(not self.uploadBusy)
-        self.secretaryComboBox.setEnabled(not self.uploadBusy)
+        self.closeUploadBrowserButton.setEnabled(not busy and self.uploadSessionActive)
+        self.refreshStaffOptionsButton.setEnabled(not busy)
+        self.notaryComboBox.setEnabled(not busy)
+        self.secretaryEdit.setEnabled(not busy)
+        self.uploadChunkSizeSpinBox.setEnabled(not busy)
         self.stopUploadButton.setEnabled(self.uploadBusy)
+
+        chunk_size = self.uploadChunkSizeSpinBox.value()
+        self.continueUploadButton.setText(f"Tiep tuc {chunk_size} so tiep theo")
 
     def _handle_folder_number_item_changed(self, item: QTableWidgetItem) -> None:
         if self.folderNumbersTable is None or item.column() != 0:
@@ -1019,24 +1009,28 @@ class UploadLabMainWindow(FluentWindow):
         if path:
             open_with_windows_default(path)
 
+    def _save_upload_chunk_size(self, value: int) -> None:
+        update_uploader_env({"ND_MAX_PREPARED_TABS": str(max(1, min(int(value), 30)))}, base_dir=self.working_dir)
+
     @staticmethod
     def _selected_staff_value(combo: QComboBox | None, default: str) -> str:
         value = combo.currentText().strip() if combo is not None else ""
         return value or default
 
+    def _secretary_value(self) -> str:
+        value = self.secretaryEdit.text().strip() if self.secretaryEdit is not None else ""
+        return value or "Nguyễn Nhật Minh"
+
     def _apply_staff_options(self, options: dict) -> None:
-        for combo, key, default in (
-            (self.notaryComboBox, "cong_chung_vien", "Phạm Minh Chi"),
-            (self.secretaryComboBox, "thu_ky", "Nguyễn Nhật Minh"),
-        ):
-            if combo is None:
-                continue
-            labels = [str(label).strip() for label in options.get(key, []) if str(label).strip()]
-            combo.clear()
-            combo.addItems(labels)
-            default_index = combo.findText(default)
-            if default_index >= 0:
-                combo.setCurrentIndex(default_index)
+        combo = self.notaryComboBox
+        if combo is None:
+            return
+        labels = [str(label).strip() for label in options.get("cong_chung_vien", []) if str(label).strip()]
+        combo.clear()
+        combo.addItems(labels)
+        default_index = combo.findText("Phạm Minh Chi")
+        if default_index >= 0:
+            combo.setCurrentIndex(default_index)
 
     def refresh_staff_options(self) -> None:
         if not self.ensure_upload_runtime_ready(show_dialog=True):
@@ -1075,6 +1069,8 @@ class UploadLabMainWindow(FluentWindow):
     def close_upload_browser(self) -> None:
         if self.uploadWorker is None:
             return
+        self.uploadBusy = True
+        self.uploadWorker.request_stop()
         self.closeUploadRequested.emit()
         self._sync_folder_upload_controls()
 
@@ -1088,24 +1084,23 @@ class UploadLabMainWindow(FluentWindow):
         if self.uploadWorker is not None:
             return self.uploadWorker
         worker = UploadWorker(self.working_dir)
-        thread = QThread(self)
-        worker.moveToThread(thread)
         self.prepareUploadRequested.connect(worker.prepare)
         self.refreshStaffOptionsRequested.connect(worker.refresh_options)
         self.reloadStaffOptionsRequested.connect(worker.reload_options)
         self.closeUploadRequested.connect(worker.close_session)
+        self.startLoginRequested.connect(worker.start_login)
+        self.downloadExcelRequested.connect(worker.download_export)
         worker.prepared.connect(self._handle_upload_prepared)
         worker.optionsRefreshed.connect(self._handle_staff_options_refreshed)
+        worker.loginStateChanged.connect(self._handle_login_state_changed)
+        worker.exportDownloaded.connect(self._handle_export_downloaded)
+        worker.preparedPagesChanged.connect(self._handle_prepared_pages_changed)
         worker.failed.connect(self._handle_upload_failed)
         worker.progress.connect(self._handle_upload_progress)
         worker.log.connect(self._log_message)
         worker.closed.connect(self._handle_upload_closed)
-        thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-        thread.finished.connect(self._handle_upload_thread_finished)
         self.uploadWorker = worker
-        self.uploadThread = thread
-        thread.start()
+        self.uploadThread = None
         return worker
 
     def _prepare_upload_chunk(self, selected_ids: set[int]) -> None:
@@ -1125,8 +1120,9 @@ class UploadLabMainWindow(FluentWindow):
                 "manifest_path": str(self.current_manifest_path),
                 "selected_record_ids": sorted(selected_ids),
                 "exclude_contract_nos": [],
+                "chunk_size": self.uploadChunkSizeSpinBox.value(),
                 "cong_chung_vien": self._selected_staff_value(self.notaryComboBox, "Phạm Minh Chi"),
-                "thu_ky": self._selected_staff_value(self.secretaryComboBox, "Nguyễn Nhật Minh"),
+                "thu_ky": self._secretary_value(),
             }
         )
 
@@ -1134,10 +1130,39 @@ class UploadLabMainWindow(FluentWindow):
         self.uploadBusy = False
         self.uploadSessionActive = True
         self.uploadRemainingCount = int(summary.get("remaining") or 0)
+        self.openPreparedRecordIds = {int(record_id) for record_id in summary.get("open_record_ids") or []}
         self._log_message(
             f"[UPLOAD] prepared={summary.get('prepared_count', 0)} | remaining={self.uploadRemainingCount}"
         )
         self._refresh_scan_results_from_manifest()
+        self._sync_folder_upload_controls()
+
+    def _handle_login_state_changed(self, result: dict) -> None:
+        status = str(result.get("status") or "")
+        message = str(result.get("message") or "")
+        if message:
+            self._log_message(f"[LOGIN] {message}")
+        if status in {"authenticated", "closed", "timeout"}:
+            self.uploadBusy = False
+            self.refresh_runtime_status()
+            self._sync_folder_upload_controls()
+
+    def _handle_export_downloaded(self, path: str) -> None:
+        self.uploadBusy = False
+        self.downloadExcelButton.setEnabled(True)
+        self.excelPathEdit.setText(path)
+        self.load_excel()
+        self._sync_folder_upload_controls()
+
+    def _handle_prepared_pages_changed(self, result: dict) -> None:
+        self.openPreparedRecordIds = {int(record_id) for record_id in result.get("open_record_ids") or []}
+        saved_ids = result.get("saved_record_ids") or []
+        closed_ids = result.get("closed_record_ids") or []
+        if saved_ids:
+            self._log_message(f"[UPLOAD] Da luu xong {len(saved_ids)} ho so tren web.")
+            self._refresh_scan_results_from_manifest()
+        if closed_ids:
+            self._log_message(f"[UPLOAD] Co {len(closed_ids)} tab da dong truoc khi luu.")
         self._sync_folder_upload_controls()
 
     def _handle_upload_progress(self, snapshot: dict) -> None:
@@ -1160,6 +1185,8 @@ class UploadLabMainWindow(FluentWindow):
     def _handle_upload_failed(self, operation: str, error_message: str) -> None:
         self.uploadBusy = False
         self.uploadSessionActive = self.uploadWorker is not None
+        if operation == "download":
+            self.downloadExcelButton.setEnabled(True)
         self._sync_folder_upload_controls()
         QMessageBox.critical(self, "Upload Lab", error_message)
 
@@ -1167,15 +1194,14 @@ class UploadLabMainWindow(FluentWindow):
         self.uploadSessionActive = False
         self.uploadBusy = False
         self.uploadRemainingCount = 0
-        thread = self.uploadThread
-        if thread is not None:
-            thread.quit()
+        self.openPreparedRecordIds.clear()
+        worker = self.uploadWorker
+        self.uploadWorker = None
+        self.uploadThread = None
+        if worker is not None:
+            worker.deleteLater()
         self._sync_folder_upload_controls()
         self._log_message("[UPLOAD] Da dong browser upload.")
-
-    def _handle_upload_thread_finished(self) -> None:
-        self.uploadThread = None
-        self.uploadWorker = None
         if self.uploadCloseRequested:
             self.close()
 
@@ -1196,10 +1222,5 @@ class UploadLabMainWindow(FluentWindow):
                 self.closeUploadRequested.emit()
             event.ignore()
             return
-        
-        # Dispatch to mock if patched in tests, else call base
-        close_fn = getattr(QMainWindow, "closeEvent", None)
-        if hasattr(close_fn, "assert_called_once_with"):
-            close_fn(event)
-            return
+
         super().closeEvent(event)

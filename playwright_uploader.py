@@ -75,6 +75,12 @@ except ImportError:  # pragma: no cover
 
 QUEUE_STATUSES = ("extracted", "upload_failed", "prepared_dry_run", "prepared_partial")
 PREPARE_QUEUE_STATUSES = ("extracted", "upload_failed")
+PREPARED_QUEUE_STATUSES = ("prepared_dry_run", "prepared_partial")
+ACCESS_TOKEN_STORAGE_KEY = "access_token"
+LOGIN_PATH = "/dang-nhap"
+CREATE_PATH = "/ho-so-cong-chung/tao-moi-nhanh"
+SAVE_API_PATH = "/api/hoso"
+MANUAL_LOGIN_TIMEOUT_SECONDS = 300
 PLAYWRIGHT_MISSING_MESSAGE = (
     "Chua cai Playwright. Scan/Extract van dung duoc. Muon upload, hay chay "
     "'run_ui.bat' de bootstrap tu dong, hoac cai bang "
@@ -93,8 +99,6 @@ UPLOADER_ENV_KEYS = (
     "ND_BASE_URL",
     "ND_LOGIN_URL",
     "ND_CREATE_URL",
-    "ND_USERNAME",
-    "ND_PASSWORD",
     "ND_STORAGE_STATE_PATH",
     "ND_BROWSER_CHANNEL",
     "ND_MAX_PREPARED_TABS",
@@ -113,11 +117,9 @@ class UploaderSettings:
     base_url: str
     login_url: str
     create_url: str
-    username: str
-    password: str
     storage_state_path: Path
     browser_channel: str = "chromium"
-    max_prepared_tabs: int = 30
+    max_prepared_tabs: int = 10
     post_prepare_delay_ms: int = 1500
 
 
@@ -133,6 +135,16 @@ class UploadRecord:
     upload_form: dict
     missing_fields: list[str]
     raw_row: dict
+
+
+@dataclass
+class PreparedBrowserTab:
+    record_id: int
+    contract_no: str
+    page: object
+    initial_url: str
+    network_log_path: Path
+    save_response_ok: bool = False
 
 
 def _fold_value(text: str) -> str:
@@ -175,16 +187,14 @@ def _default_log(message: str) -> None:
 
 
 def _default_uploader_env_values(base_dir: Path = BASE_DIR) -> dict[str, str]:
-    base_url = "https://congchung.namdinh.gov.vn"
+    base_url = "https://congchungnamdinh.ninhbinh.gov.vn"
     return {
         "ND_BASE_URL": base_url,
-        "ND_LOGIN_URL": base_url,
-        "ND_CREATE_URL": f"{base_url}/ho-so-cong-chung/tao-moi-nhanh",
-        "ND_USERNAME": "",
-        "ND_PASSWORD": "",
+        "ND_LOGIN_URL": "",
+        "ND_CREATE_URL": "",
         "ND_STORAGE_STATE_PATH": "nd_storage_state.json",
         "ND_BROWSER_CHANNEL": "chromium",
-        "ND_MAX_PREPARED_TABS": "30",
+        "ND_MAX_PREPARED_TABS": "10",
         "ND_POST_PREPARE_DELAY_MS": "1500",
     }
 
@@ -274,6 +284,17 @@ def save_uploader_env(values: dict[str, object], *, base_dir: Path = BASE_DIR) -
     return env_path
 
 
+def update_uploader_env(values: dict[str, object], *, base_dir: Path = BASE_DIR) -> Path:
+    """Update selected settings while stripping legacy username/password keys."""
+    merged = {
+        key: value
+        for key, value in read_uploader_env(base_dir, ensure_exists=True).items()
+        if key in UPLOADER_ENV_KEYS
+    }
+    merged.update({key: value for key, value in values.items() if key in UPLOADER_ENV_KEYS})
+    return save_uploader_env(merged, base_dir=base_dir)
+
+
 def get_uploader_setup_status(base_dir: Path = BASE_DIR) -> dict[str, object]:
     base_dir = Path(base_dir)
     env_path = base_dir / ".env"
@@ -283,11 +304,7 @@ def get_uploader_setup_status(base_dir: Path = BASE_DIR) -> dict[str, object]:
         values.get("ND_STORAGE_STATE_PATH", ""),
         default_name="nd_storage_state.json",
     )
-    missing_fields = [
-        key
-        for key in ("ND_BASE_URL", "ND_LOGIN_URL", "ND_CREATE_URL", "ND_USERNAME", "ND_PASSWORD")
-        if not str(values.get(key) or "").strip()
-    ]
+    missing_fields = [key for key in ("ND_BASE_URL",) if not str(values.get(key) or "").strip()]
     storage_state_exists = storage_state_path.exists()
     ready = not missing_fields and storage_state_exists
     if ready:
@@ -295,15 +312,11 @@ def get_uploader_setup_status(base_dir: Path = BASE_DIR) -> dict[str, object]:
     elif missing_fields:
         labels = {
             "ND_BASE_URL": "base url",
-            "ND_LOGIN_URL": "login url",
-            "ND_CREATE_URL": "create url",
-            "ND_USERNAME": "tai khoan",
-            "ND_PASSWORD": "mat khau",
         }
         missing_text = ", ".join(labels[key] for key in missing_fields)
-        message = f"Can cau hinh uploader lan dau ({missing_text}). Bam 'Cau hinh uploader'."
+        message = f"Can cau hinh uploader lan dau ({missing_text}). Bam 'Cau hinh'."
     else:
-        message = "Can dang nhap uploader lan dau de tao nd_storage_state.json. Bam 'Cau hinh uploader'."
+        message = "Can dang nhap uploader lan dau de tao nd_storage_state.json. Bam 'Cau hinh'."
     return {
         "env_path": env_path,
         "env_exists": env_path.exists(),
@@ -649,9 +662,9 @@ def _parse_export_date_input(value: str) -> str:
 def load_uploader_settings(base_dir: Path = BASE_DIR) -> UploaderSettings:
     values = read_uploader_env(base_dir)
 
-    base_url = str(values.get("ND_BASE_URL") or "https://congchung.namdinh.gov.vn").rstrip("/")
-    login_url = str(values.get("ND_LOGIN_URL") or base_url).strip() or base_url
-    create_url = str(values.get("ND_CREATE_URL") or f"{base_url}/ho-so-cong-chung/tao-moi-nhanh").strip()
+    base_url = str(values.get("ND_BASE_URL") or "https://congchungnamdinh.ninhbinh.gov.vn").rstrip("/")
+    login_url = str(values.get("ND_LOGIN_URL") or f"{base_url}{LOGIN_PATH}").strip()
+    create_url = str(values.get("ND_CREATE_URL") or f"{base_url}{CREATE_PATH}").strip()
     storage_state_path = _resolve_tool_relative_path(
         Path(base_dir),
         str(values.get("ND_STORAGE_STATE_PATH") or ""),
@@ -665,8 +678,6 @@ def load_uploader_settings(base_dir: Path = BASE_DIR) -> UploaderSettings:
         base_url=base_url,
         login_url=login_url,
         create_url=create_url,
-        username=str(values.get("ND_USERNAME") or "").strip(),
-        password=str(values.get("ND_PASSWORD") or "").strip(),
         storage_state_path=storage_state_path,
         browser_channel=browser_channel,
         max_prepared_tabs=max_tabs,
@@ -807,6 +818,12 @@ class NamDinhUploaderSession:
         self._playwright = None
         self.browser = None
         self.context = None
+        self.anchor_page = None
+        self.login_page = None
+        self.login_started_at = 0.0
+        self.login_response_ok = False
+        self.prepared_pages: dict[int, PreparedBrowserTab] = {}
+        self._prepared_record_ids: set[int] = set()
 
     def log(self, message: str) -> None:
         append_log_line(self.log_path, message)
@@ -824,6 +841,12 @@ class NamDinhUploaderSession:
         return "concat(" + ", \"'\", ".join(f"'{part}'" for part in parts) + ")"
 
     def close(self) -> None:
+        self.anchor_page = None
+        self.login_page = None
+        self.login_started_at = 0.0
+        self.login_response_ok = False
+        self.prepared_pages.clear()
+        self._prepared_record_ids.clear()
         if self.context is not None:
             try:
                 self.context.close()
@@ -872,11 +895,181 @@ class NamDinhUploaderSession:
         context_kwargs = {"accept_downloads": True, "viewport": None, "no_viewport": True}
         if self.settings.storage_state_path.exists():
             context_kwargs["storage_state"] = str(self.settings.storage_state_path)
-        self.context = self.browser.new_context(**context_kwargs)
+        try:
+            self.context = self.browser.new_context(**context_kwargs)
+        except Exception:
+            # A partially written or old storage-state file must not prevent login.
+            context_kwargs.pop("storage_state", None)
+            self.context = self.browser.new_context(**context_kwargs)
 
     def _save_storage_state(self) -> None:
         if self.context is not None:
             self.context.storage_state(path=str(self.settings.storage_state_path))
+
+    @staticmethod
+    def _page_is_closed(page) -> bool:
+        if page is None:
+            return True
+        try:
+            return bool(page.is_closed())
+        except Exception:
+            return False
+
+    @staticmethod
+    def _clean_network_url(url: str) -> str:
+        parsed = urllib.parse.urlsplit(str(url or ""))
+        return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+
+    def _append_network_event(
+        self,
+        path: Path,
+        *,
+        method: str,
+        url: str,
+        status: int,
+        record_id: int | None = None,
+    ) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "time": now_iso(),
+            "method": str(method or "").upper(),
+            "url": self._clean_network_url(url),
+            "status": int(status or 0),
+        }
+        if record_id is not None:
+            payload["record_id"] = int(record_id)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    def _access_token(self, page) -> str:
+        try:
+            return str(
+                page.evaluate(
+                    f"() => window.localStorage.getItem({json.dumps(ACCESS_TOKEN_STORAGE_KEY)}) || ''"
+                )
+                or ""
+            ).strip()
+        except Exception:
+            return ""
+
+    def _wait_for_create_or_login(self, page, *, timeout_ms: int = 30000) -> str:
+        if not hasattr(page, "locator"):
+            # Lightweight fakes used by unit tests expose no DOM API.
+            return "create"
+        deadline = time.monotonic() + max(int(timeout_ms), 0) / 1000
+        while time.monotonic() <= deadline:
+            if self._is_login_page(page):
+                return "login"
+            for field_name in ("so_cong_chung", "ten_hop_dong"):
+                try:
+                    locator = self._find_control_locator(page, field_name)
+                    if locator is not None and locator.count() > 0:
+                        return "create"
+                except Exception:
+                    continue
+            page.wait_for_timeout(250)
+        raise RuntimeError("Trang tao ho so tai qua lau hoac khong dung cau truc mong doi.")
+
+    def _begin_login_tracking(self, page) -> None:
+        self.login_page = page
+        self.anchor_page = page
+        self.login_started_at = time.monotonic()
+        self.login_response_ok = False
+        network_log_path = self.working_dir / "logs" / "login_network.jsonl"
+
+        def handle_response(response) -> None:
+            try:
+                request = response.request
+                method = str(request.method or "").upper()
+                url = str(response.url or "")
+                status = int(response.status or 0)
+                path = urllib.parse.urlsplit(url).path.rstrip("/")
+                if method == "POST" and path == "/api/auth/login":
+                    self._append_network_event(
+                        network_log_path,
+                        method=method,
+                        url=url,
+                        status=status,
+                    )
+                    if 200 <= status < 300:
+                        self.login_response_ok = True
+            except Exception:
+                pass
+
+        try:
+            page.on("response", handle_response)
+        except Exception:
+            pass
+
+    def open_manual_login(self) -> dict:
+        self._ensure_context()
+        page = self.anchor_page
+        if self._page_is_closed(page):
+            page = self.context.new_page()
+        self._begin_login_tracking(page)
+        # Chi mo dung dia chi web mac dinh, khong tu dieu huong vao trang nhap ho so.
+        target_url = self.settings.base_url or self.settings.login_url
+        try:
+            page.goto(target_url, wait_until="domcontentloaded")
+        except Exception as exc:
+            # Chromium has launched successfully. Keep it open so the user can
+            # retry in the address bar instead of losing the whole app flow.
+            message = f"Khong mo duoc trang dang nhap: {exc}"
+            self.log(f"[LOGIN] {message}")
+            return {
+                "status": "navigation_error",
+                "message": message,
+                "url": str(getattr(page, "url", "") or target_url),
+            }
+        self.log("[LOGIN] Da mo Chromium. Hay dang nhap tren trinh duyet; app se tu nhan dien.")
+        return {"status": "waiting", "url": str(page.url or target_url)}
+
+    def poll_manual_login(self, *, force: bool = False) -> dict:
+        page = self.login_page
+        if page is None:
+            return {"status": "idle", "message": "Chua mo trang dang nhap."}
+        if self._page_is_closed(page):
+            self.login_page = None
+            self.login_started_at = 0.0
+            return {"status": "closed", "message": "Cua so dang nhap da bi dong."}
+
+        token = self._access_token(page)
+        url = str(getattr(page, "url", "") or "")
+        logged_in = bool(token) and not self._is_login_page(page)
+        if logged_in:
+            self._save_storage_state()
+            self.login_page = None
+            self.login_started_at = 0.0
+            self.login_response_ok = False
+            self.anchor_page = page
+            self.log("[LOGIN] Da nhan dien dang nhap thanh cong va luu session.")
+            return {"status": "authenticated", "message": "Da dang nhap.", "url": url}
+
+        elapsed = time.monotonic() - self.login_started_at if self.login_started_at else 0.0
+        if elapsed >= MANUAL_LOGIN_TIMEOUT_SECONDS:
+            self.login_started_at = 0.0
+            return {
+                "status": "timeout",
+                "message": "Chua nhan dien duoc dang nhap sau 5 phut. Trinh duyet van duoc giu mo.",
+                "url": url,
+            }
+        message = "Dang cho ban dang nhap tren Chromium."
+        if force:
+            message = "Chua thay token dang nhap. Hay dang nhap xong va doi trang roi thu lai."
+        return {"status": "waiting", "message": message, "url": url}
+
+    def wait_for_manual_login(self, page, *, stop_event=None) -> None:
+        if self.login_page is not page:
+            self._begin_login_tracking(page)
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                raise RuntimeError("Da dung trong luc cho dang nhap.")
+            result = self.poll_manual_login()
+            if result["status"] == "authenticated":
+                return
+            if result["status"] in {"closed", "timeout"}:
+                raise RuntimeError(str(result.get("message") or "Khong the dang nhap."))
+            page.wait_for_timeout(500)
 
     def _locator_from_strategy(self, page, strategy: dict, *, dynamic_text: str = ""):
         stype = strategy.get("type")
@@ -1012,56 +1205,24 @@ class NamDinhUploaderSession:
         except Exception:
             return False
 
-    def _perform_login(self, page) -> None:
-        if not self.settings.username or not self.settings.password:
-            raise RuntimeError("Thieu ND_USERNAME/ND_PASSWORD trong .env de auto login")
-
-        username = None
-        password = None
-        submit = None
-        for strategy in LOGIN_SELECTORS["username"]:
-            username = self._locator_from_strategy(page, strategy)
-            if username is not None and username.count() > 0:
-                break
-        for strategy in LOGIN_SELECTORS["password"]:
-            password = self._locator_from_strategy(page, strategy)
-            if password is not None and password.count() > 0:
-                break
-        for strategy in LOGIN_SELECTORS["submit"]:
-            submit = self._locator_from_strategy(page, strategy)
-            if submit is not None and submit.count() > 0:
-                break
-
-        if not username or username.count() == 0 or not password or password.count() == 0:
-            raise RuntimeError("Khong tim thay form dang nhap de auto login")
-
-        username.fill(self.settings.username)
-        password.fill(self.settings.password)
-        if submit and submit.count() > 0:
-            submit.click()
-        else:
-            password.press("Enter")
-        page.wait_for_timeout(1000)
-        page.wait_for_load_state("networkidle")
-        self._save_storage_state()
-
-    def ensure_authenticated(self) -> None:
+    def ensure_authenticated(self, *, stop_event=None) -> None:
         self._ensure_context()
-        page = self.context.new_page()
-        try:
+        page = self.anchor_page
+        if self._page_is_closed(page):
+            page = self.context.new_page()
+        self.anchor_page = page
+        page.goto(self.settings.create_url, wait_until="domcontentloaded")
+        page_state = self._wait_for_create_or_login(page)
+        if page_state == "login":
+            self.log("[LOGIN] Session het han. Hay dang nhap lai tren Chromium.")
+            if LOGIN_PATH not in str(page.url or "").lower():
+                page.goto(self.settings.login_url, wait_until="domcontentloaded")
+            self._begin_login_tracking(page)
+            self.wait_for_manual_login(page, stop_event=stop_event)
             page.goto(self.settings.create_url, wait_until="domcontentloaded")
-            page.wait_for_load_state("networkidle")
-            if self._is_login_page(page):
-                self.log("[UPLOAD] Session het han, dang auto login lai...")
-                login_url = self.settings.login_url or self.settings.base_url
-                if login_url:
-                    page.goto(login_url, wait_until="domcontentloaded")
-                    page.wait_for_load_state("networkidle")
-                self._perform_login(page)
-                page.goto(self.settings.create_url, wait_until="domcontentloaded")
-                page.wait_for_load_state("networkidle")
-        finally:
-            page.close()
+            page_state = self._wait_for_create_or_login(page)
+        if page_state != "create":
+            raise RuntimeError("Dang nhap xong nhung chua mo duoc trang tao ho so.")
 
     @property
     def staff_options_cache_path(self) -> Path:
@@ -1114,7 +1275,7 @@ class NamDinhUploaderSession:
         page = self.context.new_page()
         try:
             page.goto(self.settings.create_url, wait_until="domcontentloaded")
-            page.wait_for_load_state("networkidle")
+            self._wait_for_create_or_login(page)
             options = {
                 field_name: self._read_dropdown_options(page, field_name)
                 for field_name in ("cong_chung_vien", "thu_ky")
@@ -1147,11 +1308,14 @@ class NamDinhUploaderSession:
         try:
             listing_url = f"{self.settings.base_url.rstrip('/')}/ho-so-cong-chung?page=1"
             page.goto(listing_url, wait_until="domcontentloaded")
-            page.wait_for_load_state("networkidle")
-
             export_button = page.get_by_text("Xuất Sổ công chứng", exact=False).first
+            deadline = time.monotonic() + 30
+            while export_button.count() == 0 and time.monotonic() <= deadline:
+                if self._is_login_page(page):
+                    raise RuntimeError("Session da het han. Hay mo Cau hinh va dang nhap lai.")
+                page.wait_for_timeout(250)
             if export_button.count() == 0:
-                raise RuntimeError("Khong tim thay nut 'Xuất Sổ công chứng' tren trang danh sach.")
+                raise RuntimeError("Khong tim thay nut 'Xuat So cong chung' tren trang danh sach.")
 
             export_button.click()
             dialog = page.get_by_role("dialog").first
@@ -1587,17 +1751,121 @@ class NamDinhUploaderSession:
                 partial = True
         return verify_data, partial
 
+    @property
+    def open_prepared_record_ids(self) -> set[int]:
+        return set(self._prepared_record_ids)
+
+    def _register_prepared_page(
+        self,
+        record: UploadRecord,
+        page,
+        artifact_dir: Path,
+    ) -> None:
+        record_id = int(record.record_id)
+        network_log_path = artifact_dir / "network.jsonl"
+        tab = PreparedBrowserTab(
+            record_id=record_id,
+            contract_no=str(record.contract_no),
+            page=page,
+            initial_url=str(page.url or self.settings.create_url),
+            network_log_path=network_log_path,
+        )
+        self.prepared_pages[record_id] = tab
+        self._prepared_record_ids.add(record_id)
+
+        def handle_response(response) -> None:
+            try:
+                request = response.request
+                method = str(request.method or "").upper()
+                url = str(response.url or "")
+                status = int(response.status or 0)
+                path = urllib.parse.urlsplit(url).path.rstrip("/")
+                if method == "POST" and path == SAVE_API_PATH:
+                    self._append_network_event(
+                        network_log_path,
+                        method=method,
+                        url=url,
+                        status=status,
+                        record_id=record_id,
+                    )
+                    if 200 <= status < 300:
+                        tab.save_response_ok = True
+            except Exception:
+                pass
+
+        try:
+            page.on("response", handle_response)
+        except Exception:
+            pass
+
+    def _page_left_create_route(self, tab: PreparedBrowserTab) -> bool:
+        current_url = str(getattr(tab.page, "url", "") or "")
+        current = urllib.parse.urlsplit(current_url)
+        base = urllib.parse.urlsplit(self.settings.base_url)
+        current_path = current.path.rstrip("/")
+        create_path = urllib.parse.urlsplit(self.settings.create_url).path.rstrip("/")
+        return bool(
+            current.scheme in {"http", "https"}
+            and current.netloc == base.netloc
+            and current_path != create_path
+            and current_path != LOGIN_PATH
+        )
+
+    def poll_prepared_pages(self) -> dict[str, list[int]]:
+        saved_ids: list[int] = []
+        closed_ids: list[int] = []
+        for record_id, tab in list(self.prepared_pages.items()):
+            page = tab.page
+            if self._page_is_closed(page):
+                self.prepared_pages.pop(record_id, None)
+                self._prepared_record_ids.discard(record_id)
+                closed_ids.append(record_id)
+                self.log(
+                    f"[UPLOAD] Tab {tab.contract_no} da dong khi chua nhan duoc tin hieu Luu; "
+                    "ho so co the duoc chuan bi lai."
+                )
+                continue
+
+            try:
+                # A small Playwright call lets the sync API dispatch response events.
+                page.evaluate("() => document.readyState")
+            except Exception:
+                continue
+
+            if not tab.save_response_ok and not self._page_left_create_route(tab):
+                continue
+
+            finalize_uploaded_records([record_id], working_dir=self.working_dir)
+            self.prepared_pages.pop(record_id, None)
+            self._prepared_record_ids.discard(record_id)
+            saved_ids.append(record_id)
+            signal = "POST /api/hoso 2xx" if tab.save_response_ok else "trang da chuyen sau khi Luu"
+            self.log(f"[UPLOAD] Da nhan dien Luu {tab.contract_no} ({signal}).")
+            try:
+                page.close()
+            except Exception:
+                pass
+
+        return {
+            "saved_record_ids": saved_ids,
+            "closed_record_ids": closed_ids,
+            "open_record_ids": sorted(self._prepared_record_ids),
+        }
+
     def _prepare_record(self, record: UploadRecord, artifact_dir: Path):
         if not record.source_file.exists():
             self.log(f"[UPLOAD] File goc khong ton tai, tiep tuc khong upload file: {record.source_file}")
 
         page = self.context.new_page()
         page.goto(self.settings.create_url, wait_until="domcontentloaded")
-        page.wait_for_load_state("networkidle")
-        if self._is_login_page(page):
-            self._perform_login(page)
+        page_state = self._wait_for_create_or_login(page)
+        if page_state == "login":
+            self._begin_login_tracking(page)
+            self.wait_for_manual_login(page)
             page.goto(self.settings.create_url, wait_until="domcontentloaded")
-            page.wait_for_load_state("networkidle")
+            page_state = self._wait_for_create_or_login(page)
+        if page_state != "create":
+            raise RuntimeError("Khong mo duoc form tao ho so sau khi dang nhap.")
 
         field_results: dict[str, dict] = {}
         for field_name in FORM_FIELD_ORDER:
@@ -1632,6 +1900,9 @@ class NamDinhUploaderSession:
         if self.settings.post_prepare_delay_ms > 0:
             page.wait_for_timeout(self.settings.post_prepare_delay_ms)
 
+        if getattr(record, "record_id", None) is not None:
+            self._register_prepared_page(record, page, artifact_dir)
+
         return {
             "status": "prepared_partial" if partial else "prepared_dry_run",
             "verify_json": json.dumps(verify_data, ensure_ascii=False, indent=2),
@@ -1651,6 +1922,7 @@ class NamDinhUploaderSession:
         progress_callback: Optional[Callable[[dict], None]] = None,
         cong_chung_vien: str | None = None,
         thu_ky: str | None = None,
+        chunk_size: int | None = None,
     ) -> dict:
         def emit_progress(event: str, **payload: object) -> None:
             if progress_callback is None:
@@ -1677,14 +1949,24 @@ class NamDinhUploaderSession:
             requester_lookup=requester_lookup,
             cong_chung_vien=cong_chung_vien,
             thu_ky=thu_ky,
-            statuses=PREPARE_QUEUE_STATUSES,
+            statuses=QUEUE_STATUSES,
         )
         run_id = str(manifest["run_id"])
+        records = [
+            record
+            for record in records
+            if record.status in PREPARE_QUEUE_STATUSES
+            or (
+                record.status in PREPARED_QUEUE_STATUSES
+                and record.record_id not in self._prepared_record_ids
+            )
+        ]
         filtered_records, duplicate_records = split_records_by_existing_contract_nos(
             records,
             set(exclude_contract_nos or set()),
         )
-        records = filtered_records[: self.settings.max_prepared_tabs]
+        effective_chunk_size = max(1, min(int(chunk_size or self.settings.max_prepared_tabs), 30))
+        records = filtered_records[:effective_chunk_size]
         filtered_pending = len(filtered_records)
         emit_progress(
             "queue_loaded",
@@ -1707,6 +1989,7 @@ class NamDinhUploaderSession:
                 "remaining": 0,
                 "artifact_dir": "",
                 "excluded_duplicates": len(duplicate_records),
+                "open_record_ids": sorted(self._prepared_record_ids),
                 "message": f"Khong con ho so nao can chuan bi.{duplicate_message}",
             }
             emit_progress("finished", **summary)
@@ -1716,7 +1999,7 @@ class NamDinhUploaderSession:
         artifact_dir.mkdir(parents=True, exist_ok=True)
         self.run_log_path = artifact_dir / "dry_run_trace.log"
         self.log(f"[UPLOAD] Artifact dir: {artifact_dir}")
-        self.ensure_authenticated()
+        self.ensure_authenticated(stop_event=stop_event)
 
         prepared_count = 0
         errors = []
@@ -1747,6 +2030,7 @@ class NamDinhUploaderSession:
                 self.log(f"[UPLOAD] Dang chuan bi {record.contract_no} (record #{record.record_id})")
                 try:
                     result = self._prepare_record(record, artifact_dir)
+                    self._prepared_record_ids.add(record.record_id)
                     update_registry_record_by_id(
                         conn,
                         record.record_id,
@@ -1803,11 +2087,12 @@ class NamDinhUploaderSession:
                 "remaining": max(filtered_pending - prepared_count, 0),
                 "artifact_dir": str(artifact_dir),
                 "excluded_duplicates": len(duplicate_records),
+                "open_record_ids": sorted(self._prepared_record_ids),
                 "errors": errors,
                 "message": (
                     f"Da chuan bi {prepared_count}/{filtered_pending} ho so."
                     + (f" Da loai {len(duplicate_records)} ho so trung tren web." if duplicate_records else "")
-                    + " Hay ra soat, luu, finalize roi chay tiep chunk sau."
+                    + " Hay ra soat va bam Luu tren web; app se tu cap nhat."
                 ),
             }
             (artifact_dir / "upload_manifest.json").write_text(
