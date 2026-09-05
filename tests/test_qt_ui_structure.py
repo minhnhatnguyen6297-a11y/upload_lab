@@ -68,7 +68,7 @@ class QtUIStructureTests(unittest.TestCase):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
         from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QLineEdit, QPushButton, QProgressBar, QTabWidget, QTableWidget
+        from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QLineEdit, QPushButton, QProgressBar, QPlainTextEdit, QTabWidget, QTableWidget
 
         from ui_qt.main_window import UploadLabMainWindow
 
@@ -107,6 +107,10 @@ class QtUIStructureTests(unittest.TestCase):
             ("uploadProgressBar", QProgressBar),
             ("uploadProgressLabel", QLabel),
             ("stopUploadButton", QPushButton),
+            ("environmentCheckButton", QPushButton),
+            ("copyDiagnosticsButton", QPushButton),
+            ("environmentStatusLabel", QLabel),
+            ("environmentStepsText", QPlainTextEdit),
         ]
 
         for name, widget_type in widget_checks:

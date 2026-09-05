@@ -55,7 +55,7 @@ flowchart LR
    - Bấm *Tiếp tục N số tiếp theo* để mở đợt mới; app không tự mở đợt kế tiếp.
 
 > [!NOTE]
-> Hợp đồng chi tiết của luồng đăng nhập, nhận diện Lưu và kế hoạch kiểm tra môi trường trước lần đăng nhập đầu xem tại: [`docs/handoff-login-handshake.md`](docs/handoff-login-handshake.md) và [`docs/fluent_ui_redesign/SPEC_LAYOUT_FLUENT_UI.md`](docs/fluent_ui_redesign/SPEC_LAYOUT_FLUENT_UI.md).
+> Hợp đồng chi tiết của luồng đăng nhập và nhận diện Lưu xem tại [`docs/handoff-login-handshake.md`](docs/handoff-login-handshake.md). Đặc tả Fluent UI và kế hoạch kiểm tra môi trường được quản lý trên Linear tại [MIN-31](https://linear.app/minhnotary/issue/MIN-31/upload-lab-fluent-ui-redesign-specification-windows-11).
 
 ---
 
@@ -97,7 +97,7 @@ upload_lab/
 |-- docs/
 |   |-- regex-rules.md              # Catalog quy tắc regex chuẩn cho các loại văn bản
 |   |-- handoff-login-handshake.md  # Hợp đồng luồng đăng nhập thủ công & nhận diện Lưu
-|   `-- fluent_ui_redesign/         # Spec Fluent UI 2.0 + kế hoạch kiểm tra môi trường
+|   `-- fluent_ui_redesign/         # Ảnh mockup và asset tham chiếu giao diện Fluent UI
 |-- ui_qt/                          # Giao diện Fluent (PySide6-Fluent-Widgets)
 |   |-- app.py                      # Khởi tạo QApplication, áp theme
 |   |-- main_window.py              # FluentWindow: navigation, các trang, signal/slot
@@ -119,11 +119,11 @@ Giao diện là **PySide6 + PySide6-Fluent-Widgets (`qfluentwidgets`)**, dựng 
 - **Cửa sổ chính**: kế thừa `FluentWindow`, điều hướng bằng `NavigationItemPosition` thay cho `QTabWidget` ngang kiểu cũ.
 - **Widget Fluent**: `CardWidget`/`ElevatedCardWidget` cho khối nội dung, `PrimaryPushButton`/`FluentPushButton` cho nút bấm, `FluentIcon` cho icon, `TitleLabel`/`BodyLabel`/`CaptionLabel` cho chữ.
 - **Theme**: `ui_qt/theme.py` set nền `qdarktheme` (light) rồi phủ thêm QSS tùy biến cho KPI card, sidebar, bảng — token khai báo tập trung ở đầu file (`PRIMARY_COLOR`, `CONTROL_MIN_HEIGHT`, `CORNER_RADIUS`, ...).
-- **Đặc tả đầy đủ & mockup**: [`docs/fluent_ui_redesign/SPEC_LAYOUT_FLUENT_UI.md`](docs/fluent_ui_redesign/SPEC_LAYOUT_FLUENT_UI.md).
+- **Đặc tả đầy đủ & kế hoạch**: [Linear MIN-31](https://linear.app/minhnotary/issue/MIN-31/upload-lab-fluent-ui-redesign-specification-windows-11); ảnh mockup tham chiếu nằm trong `docs/fluent_ui_redesign/`.
 - **Kiểm tra hồi quy giao diện**: `./.venv/Scripts/python.exe ./tools/inspect_ui_style.py` để dump metric/màu thực tế của widget.
 
 > [!IMPORTANT]
-> Mọi thay đổi giao diện đi trực tiếp vào `ui_qt/main_window.py` và `ui_qt/theme.py`. Không tạo lại file `.ui` hay tài liệu spec song song khác — tài liệu rời rạc sẽ lệch khỏi code rất nhanh.
+> Mọi thay đổi giao diện đi trực tiếp vào `ui_qt/main_window.py` và `ui_qt/theme.py`. Không tạo file `spec`/`plan`/`issue` hoặc tài liệu yêu cầu song song trong repo; cập nhật nguồn sự thật trên Linear.
 
 ---
 

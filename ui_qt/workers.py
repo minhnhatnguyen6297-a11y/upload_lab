@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal, Slot
 
 from playwright_uploader import NamDinhUploaderSession, load_uploader_settings
+from ui.services.environment_check_service import run_environment_checks
 from ui.services.folder_workflow_service import run_folder_scan
 
 
@@ -36,6 +37,26 @@ class FolderScanWorker(QObject):
         self.finished.emit(manifest, str(manifest_path))
 
 
+class EnvironmentCheckWorker(QObject):
+    """Run non-Playwright pre-login checks away from the Qt event loop."""
+
+    finished = Signal(dict)
+    failed = Signal(str)
+
+    def __init__(self, working_dir: Path, base_url: str):
+        super().__init__()
+        self.working_dir = Path(working_dir)
+        self.base_url = str(base_url or "")
+
+    def run(self) -> None:
+        try:
+            report = run_environment_checks(self.working_dir, self.base_url)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+            return
+        self.finished.emit(report)
+
+
 class UploadWorker(QObject):
     """Run every Playwright call on one normal Python thread.
 
@@ -45,6 +66,7 @@ class UploadWorker(QObject):
     """
 
     prepared = Signal(dict)
+    preflightChecked = Signal(dict)
     optionsRefreshed = Signal(dict)
     loginStateChanged = Signal(dict)
     exportDownloaded = Signal(str)
@@ -152,7 +174,13 @@ class UploadWorker(QObject):
                     elif operation == "start_login":
                         session = self._ensure_session()
                         session.settings = load_uploader_settings(self.working_dir)
+                        self._last_login_status = ""
                         self._emit_login_result(session.open_manual_login())
+                    elif operation == "preflight":
+                        session = self._ensure_session()
+                        session.settings = load_uploader_settings(self.working_dir)
+                        self._last_login_status = ""
+                        self.preflightChecked.emit(session.preflight_login(timeout_ms=15000))
                     elif operation == "confirm_login":
                         result = self._ensure_session().poll_manual_login(force=True)
                         self._emit_login_result(result)
@@ -185,6 +213,10 @@ class UploadWorker(QObject):
     @Slot()
     def start_login(self) -> None:
         self._enqueue("start_login")
+
+    @Slot()
+    def preflight_environment(self) -> None:
+        self._enqueue("preflight")
 
     @Slot()
     def confirm_login(self) -> None:

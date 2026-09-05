@@ -25,7 +25,7 @@
 - Windows 10 cần được ghi là **tương thích có kiểm tra**: Playwright hiện hỗ trợ chính thức Windows 11+; không tự nâng cấp Playwright/Chromium trên máy Windows 10.
 - Kết quả phải chỉ rõ bước nào lỗi, có nút Thử lại/Sao chép chẩn đoán, và chỉ lưu log đã bỏ token, cookie, mật khẩu và URL có query.
 
-Đặc tả đầy đủ, gồm mức chặn/cảnh báo và tiêu chí chấp nhận, nằm trong [SPEC_LAYOUT_FLUENT_UI.md](fluent_ui_redesign/SPEC_LAYOUT_FLUENT_UI.md).
+Đặc tả đầy đủ, gồm mức chặn/cảnh báo và tiêu chí chấp nhận, nằm trong [Linear MIN-31](https://linear.app/minhnotary/issue/MIN-31/upload-lab-fluent-ui-redesign-specification-windows-11).
 
 ## Quy tắc kỹ thuật quan trọng
 

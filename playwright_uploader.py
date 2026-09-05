@@ -48,6 +48,11 @@ except ImportError:  # pragma: no cover
     )
 
 try:
+    from ui.services.environment_check_service import redact_text, safe_url
+except ImportError:  # pragma: no cover
+    from .ui.services.environment_check_service import redact_text, safe_url
+
+try:
     from uploader_selectors import (
         DEFAULT_GHI_CHU,
         DEFAULT_PHI_CONG_CHUNG,
@@ -183,7 +188,13 @@ def field_value_matches(field_name: str, expected: str, actual: str) -> bool:
 
 
 def _default_log(message: str) -> None:
-    print(message)
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        # Some Windows terminals still expose a CP1252 stdout stream. Keep
+        # the diagnostic in the UTF-8 file log while ensuring a Playwright
+        # launch/navigation error can still be returned to the caller.
+        print(str(message).encode("ascii", errors="replace").decode("ascii"))
 
 
 def _default_uploader_env_values(base_dir: Path = BASE_DIR) -> dict[str, str]:
@@ -902,6 +913,92 @@ class NamDinhUploaderSession:
             context_kwargs.pop("storage_state", None)
             self.context = self.browser.new_context(**context_kwargs)
 
+    @staticmethod
+    def _classify_navigation_error(exc: object) -> str:
+        text = str(exc or "").lower()
+        if "timeout" in text:
+            return "timeout"
+        if "certificate" in text or "cert_" in text:
+            return "certificate"
+        if "dns" in text or "name_not_resolved" in text or "err_name_not_resolved" in text:
+            return "dns"
+        if "proxy" in text or "access_denied" in text or "blocked" in text:
+            return "proxy_or_policy"
+        if any(
+            marker in text
+            for marker in (
+                "browsertype.launch",
+                "browser launch",
+                "executable doesn't exist",
+                "executable does not exist",
+                "missing executable",
+                "playwright install",
+            )
+        ):
+            return "browser_launch"
+        return "navigation_error"
+
+    def preflight_login(self, *, timeout_ms: int = 15000) -> dict:
+        """Launch/probe the login page while retaining the same browser session.
+
+        This is intentionally a method on the existing uploader session.  The
+        caller can therefore continue manual login on ``login_page`` without
+        opening a second Chromium instance after the environment check.
+        """
+
+        target_url = self.settings.login_url or self.settings.base_url
+        clean_url = safe_url(target_url)
+        if not clean_url:
+            return {
+                "status": "blocked",
+                "error_code": "invalid_url",
+                "message": "Địa chỉ trang đăng nhập chưa hợp lệ.",
+                "guidance": "Mở Cấu hình và nhập địa chỉ web HTTP/HTTPS hợp lệ.",
+                "url": "",
+                "browser_channel": self.settings.browser_channel,
+                "reused_browser": False,
+            }
+
+        try:
+            self._ensure_context()
+            page = self.anchor_page
+            reused_browser = not self._page_is_closed(page)
+            if self._page_is_closed(page):
+                page = self.context.new_page()
+            self.anchor_page = page
+            page.goto(clean_url, wait_until="domcontentloaded", timeout=int(timeout_ms))
+            self._begin_login_tracking(page)
+            self.log("[ENV] Chromium va trang dang nhap san sang.")
+            return {
+                "status": "passed",
+                "error_code": "",
+                "message": "Chromium đã mở và truy cập được trang đăng nhập.",
+                "guidance": "Hãy đăng nhập trên Chromium đang mở; app sẽ tự nhận diện.",
+                "url": safe_url(str(getattr(page, "url", "") or target_url)),
+                "browser_channel": self.settings.browser_channel,
+                "reused_browser": reused_browser,
+            }
+        except Exception as exc:
+            error_code = self._classify_navigation_error(exc)
+            messages = {
+                "timeout": "Trang đăng nhập phản hồi quá thời gian cho phép.",
+                "certificate": "Kết nối tới trang đăng nhập gặp lỗi chứng chỉ.",
+                "dns": "Không phân giải được tên miền trang đăng nhập.",
+                "proxy_or_policy": "Proxy hoặc chính sách mạng chặn trang đăng nhập.",
+                "browser_launch": "Không thể khởi động Chromium của app.",
+                "navigation_error": "Không thể mở trang đăng nhập bằng Chromium.",
+            }
+            self.log(f"[ENV] {messages[error_code]} ({redact_text(exc)})")
+            return {
+                "status": "blocked",
+                "error_code": error_code,
+                "message": messages[error_code],
+                "guidance": "Kiểm tra mạng, VPN, proxy, chứng chỉ hoặc cài đặt Chromium rồi thử lại.",
+                "url": safe_url(str(getattr(self.anchor_page, "url", "") or target_url)),
+                "browser_channel": self.settings.browser_channel,
+                "reused_browser": not self._page_is_closed(self.anchor_page),
+            }
+
     def _save_storage_state(self) -> None:
         if self.context is not None:
             self.context.storage_state(path=str(self.settings.storage_state_path))
@@ -1003,6 +1100,13 @@ class NamDinhUploaderSession:
 
     def open_manual_login(self) -> dict:
         self._ensure_context()
+        if not self._page_is_closed(self.login_page):
+            self.log("[LOGIN] Chromium dang mo san trang dang nhap.")
+            return {
+                "status": "waiting",
+                "message": "Chromium đang mở sẵn trang đăng nhập; hãy đăng nhập trên trình duyệt.",
+                "url": safe_url(str(getattr(self.login_page, "url", "") or self.settings.login_url)),
+            }
         page = self.anchor_page
         if self._page_is_closed(page):
             page = self.context.new_page()

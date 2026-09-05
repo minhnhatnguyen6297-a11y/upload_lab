@@ -8,6 +8,7 @@ from typing import cast
 from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -56,6 +57,7 @@ from playwright_uploader import (
     update_uploader_env,
 )
 from ui.services.contract_book_audit import analyze_contract_book
+from ui.services.environment_check_service import finalize_report, format_report
 from ui.services.scan_classification_service import FolderScanRow, classify_scan_records
 from ui.services.upload_selection_service import UploadSelection
 from ui_qt.widgets import (
@@ -65,7 +67,7 @@ from ui_qt.widgets import (
     set_checkable_upload_rows,
     set_table_rows,
 )
-from ui_qt.workers import FolderScanWorker, UploadWorker
+from ui_qt.workers import EnvironmentCheckWorker, FolderScanWorker, UploadWorker
 
 EXCEL_DISPLAY_HEADERS = ["Ngay", "So cong chung", "Dong Excel"]
 EXCEL_MISSING_HEADERS = ["So thieu", "Nam", "STT", "Chu thich"]
@@ -78,6 +80,7 @@ class UploadLabMainWindow(FluentWindow):
     reloadStaffOptionsRequested = Signal()
     closeUploadRequested = Signal()
     startLoginRequested = Signal()
+    preflightEnvironmentRequested = Signal()
     downloadExcelRequested = Signal(object)
 
     def __init__(self, *, working_dir: Path = BASE_DIR):
@@ -88,6 +91,10 @@ class UploadLabMainWindow(FluentWindow):
         self.current_manifest_path: Path | None = None
         self.scanThread: QThread | None = None
         self.scanWorker: FolderScanWorker | None = None
+        self.environmentThread: QThread | None = None
+        self.environmentWorker: EnvironmentCheckWorker | None = None
+        self.environmentReport: dict[str, object] = {}
+        self.environmentCheckBusy = False
         self.ui = self
 
         self.folderNumberSelection = UploadSelection()
@@ -527,9 +534,40 @@ class UploadLabMainWindow(FluentWindow):
         cl.setContentsMargins(20, 16, 20, 16)
         cl.setSpacing(12)
 
-        self.regexPlaceholder = BodyLabel("Maintainer-only regex review workflow.", card)
+        self.regexPlaceholder = BodyLabel(
+            "Kiểm tra môi trường trước lần đăng nhập và không lưu thông tin xác thực.",
+            card,
+        )
         self.regexPlaceholder.setObjectName("regexPlaceholder")
         cl.addWidget(self.regexPlaceholder)
+
+        self.environmentStatusLabel = BodyLabel("Trạng thái: Chưa kiểm tra", card)
+        self.environmentStatusLabel.setObjectName("environmentStatusLabel")
+        cl.addWidget(self.environmentStatusLabel)
+
+        self.environmentStepsText = FluentPlainTextEdit(card)
+        self.environmentStepsText.setObjectName("environmentStepsText")
+        self.environmentStepsText.setReadOnly(True)
+        self.environmentStepsText.setMinimumHeight(170)
+        cl.addWidget(self.environmentStepsText)
+
+        environment_buttons = QHBoxLayout()
+        self.environmentCheckButton = PrimaryPushButton(
+            FIF.SETTING,
+            "Kiểm tra môi trường và mở đăng nhập",
+            card,
+        )
+        self.environmentCheckButton.setObjectName("environmentCheckButton")
+        self.environmentCheckButton.clicked.connect(self.start_environment_check)
+        environment_buttons.addWidget(self.environmentCheckButton)
+
+        self.copyDiagnosticsButton = FluentPushButton(FIF.DOCUMENT, "Sao chép chẩn đoán", card)
+        self.copyDiagnosticsButton.setObjectName("copyDiagnosticsButton")
+        self.copyDiagnosticsButton.setEnabled(False)
+        self.copyDiagnosticsButton.clicked.connect(self.copy_environment_diagnostics)
+        environment_buttons.addWidget(self.copyDiagnosticsButton)
+        environment_buttons.addStretch(1)
+        cl.addLayout(environment_buttons)
 
         btn_cfg = PrimaryPushButton(FIF.SETTING, "Mở Cửa Sổ Cấu Hình Chi Tiết", card)
         btn_cfg.clicked.connect(self.open_upload_config_dialog)
@@ -672,6 +710,135 @@ class UploadLabMainWindow(FluentWindow):
         self.playwright_ready, self.playwright_message = probe_playwright_runtime()
         self.uploader_status = get_uploader_setup_status(self.working_dir)
 
+    @staticmethod
+    def _environment_status_label(status: str) -> str:
+        return {
+            "passed": "Đạt",
+            "warning": "Cần chú ý",
+            "blocked": "Không thể đăng nhập",
+        }.get(str(status or "blocked"), "Không thể đăng nhập")
+
+    def _render_environment_report(self, report: dict[str, object]) -> None:
+        if not hasattr(self, "environmentStatusLabel"):
+            return
+        status = str(report.get("overall") or "blocked")
+        self.environmentStatusLabel.setText(
+            f"Trạng thái: {self._environment_status_label(status)}"
+        )
+        self.environmentStepsText.setPlainText(format_report(report))
+        self.copyDiagnosticsButton.setEnabled(bool(report.get("steps")))
+
+    def start_environment_check(self) -> None:
+        """Run non-browser checks, then probe login in the shared browser thread."""
+
+        if self.environmentThread is not None and self.environmentThread.isRunning():
+            return
+
+        values = read_uploader_env(self.working_dir, ensure_exists=True)
+        self.environmentCheckBusy = True
+        self.environmentCheckButton.setEnabled(False)
+        self.environmentStatusLabel.setText("Trạng thái: Đang kiểm tra...")
+        self.environmentStepsText.setPlainText(
+            "Đang kiểm tra hệ điều hành, thư mục, dependency và mạng..."
+        )
+        self._sync_folder_upload_controls()
+
+        self.environmentThread = QThread(self)
+        self.environmentWorker = EnvironmentCheckWorker(
+            self.working_dir,
+            str(values.get("ND_BASE_URL") or ""),
+        )
+        self.environmentWorker.moveToThread(self.environmentThread)
+        self.environmentThread.started.connect(self.environmentWorker.run)
+        self.environmentWorker.finished.connect(self._handle_environment_checks_finished)
+        self.environmentWorker.failed.connect(self._handle_environment_check_error)
+        self.environmentThread.start()
+
+    def _cleanup_environment_thread(self) -> None:
+        if self.environmentThread is not None:
+            self.environmentThread.quit()
+            self.environmentThread.wait()
+            self.environmentThread = None
+        self.environmentWorker = None
+
+    def _handle_environment_checks_finished(self, report: dict) -> None:
+        self._cleanup_environment_thread()
+        self.environmentReport = dict(report)
+        self._render_environment_report(self.environmentReport)
+        if str(report.get("overall") or "blocked") == "blocked":
+            self.environmentCheckBusy = False
+            self.environmentCheckButton.setEnabled(True)
+            self._sync_folder_upload_controls()
+            self._log_message("[ENV] Kiểm tra môi trường bị chặn; chưa mở đăng nhập.")
+            return
+
+        self._log_message("[ENV] Kiểm tra nền đạt; đang kiểm tra Chromium bằng session hiện có.")
+        self.uploadBusy = True
+        self._ensure_upload_worker()
+        self._sync_folder_upload_controls()
+        self.preflightEnvironmentRequested.emit()
+
+    def _handle_environment_check_error(self, error_message: str) -> None:
+        self._cleanup_environment_thread()
+        self.environmentCheckBusy = False
+        self.environmentReport = {
+            "overall": "blocked",
+            "steps": [
+                {
+                    "key": "environment_worker",
+                    "label": "Bộ kiểm tra môi trường",
+                    "status": "blocked",
+                    "message": str(error_message),
+                    "guidance": "Thử lại hoặc gửi log cho bộ phận hỗ trợ.",
+                }
+            ],
+        }
+        self._render_environment_report(self.environmentReport)
+        self.environmentCheckButton.setEnabled(True)
+        self._sync_folder_upload_controls()
+        self._log_message(f"[ENV] Kiểm tra thất bại: {error_message}")
+
+    def _handle_environment_preflight(self, browser_result: dict) -> None:
+        try:
+            self.environmentReport = finalize_report(
+                self.environmentReport,
+                dict(browser_result),
+                self.working_dir,
+            )
+        except Exception as exc:
+            self.environmentReport = {
+                **self.environmentReport,
+                "overall": "blocked",
+                "steps": [
+                    *(self.environmentReport.get("steps") or []),
+                    {
+                        "key": "diagnostics",
+                        "label": "Báo cáo chẩn đoán",
+                        "status": "blocked",
+                        "message": f"Không thể lưu báo cáo: {exc}",
+                        "guidance": "Kiểm tra quyền ghi thư mục logs rồi thử lại.",
+                    },
+                ],
+            }
+        self._render_environment_report(self.environmentReport)
+        self.environmentCheckBusy = False
+        self.uploadBusy = False
+        self.environmentCheckButton.setEnabled(True)
+        if str(self.environmentReport.get("overall") or "blocked") == "blocked":
+            self._log_message("[ENV] Preflight Chromium bị chặn; chưa chuyển sang đăng nhập.")
+        else:
+            self.uploadSessionActive = True
+            self._log_message(
+                "[ENV] Chromium sẵn sàng. Hãy đăng nhập trên trình duyệt đang mở."
+            )
+        self._sync_folder_upload_controls()
+
+    def copy_environment_diagnostics(self) -> None:
+        if not self.environmentReport:
+            return
+        QApplication.clipboard().setText(format_report(self.environmentReport))
+        self._log_message("[ENV] Đã sao chép chẩn đoán đã lọc.")
+
     def runtime_summary(self) -> str:
         ready = bool(self.playwright_ready and self.uploader_status.get("ready"))
         status = "ready" if ready else "not_ready"
@@ -721,10 +888,7 @@ class UploadLabMainWindow(FluentWindow):
         def open_login() -> None:
             save_only()
             dialog.accept()
-            self.uploadBusy = True
-            self._ensure_upload_worker()
-            self._sync_folder_upload_controls()
-            self.startLoginRequested.emit()
+            self.start_environment_check()
 
         save_button = QPushButton("Luu dia chi", dialog)
         save_button.clicked.connect(save_only)
@@ -925,11 +1089,11 @@ class UploadLabMainWindow(FluentWindow):
     def _sync_folder_upload_controls(self) -> None:
         selected_count = len(self.folderNumberSelection.selected_record_ids())
         has_rows = bool(self.folderNumberSelection.row_ids)
-        busy = self.uploadBusy or self.scanBusy
+        busy = self.uploadBusy or self.scanBusy or self.environmentCheckBusy
 
         # Chi khoa nut chon/quet thu muc khi dang scan, khong khoa theo trang thai upload.
-        self.browseFolderButton.setEnabled(not self.scanBusy)
-        self.scanFolderButton.setEnabled(not self.scanBusy)
+        self.browseFolderButton.setEnabled(not self.scanBusy and not self.environmentCheckBusy)
+        self.scanFolderButton.setEnabled(not self.scanBusy and not self.environmentCheckBusy)
 
         self.selectAllValidButton.setEnabled(not busy and has_rows)
         self.clearValidSelectionButton.setEnabled(not busy and has_rows)
@@ -1085,12 +1249,14 @@ class UploadLabMainWindow(FluentWindow):
             return self.uploadWorker
         worker = UploadWorker(self.working_dir)
         self.prepareUploadRequested.connect(worker.prepare)
+        self.preflightEnvironmentRequested.connect(worker.preflight_environment)
         self.refreshStaffOptionsRequested.connect(worker.refresh_options)
         self.reloadStaffOptionsRequested.connect(worker.reload_options)
         self.closeUploadRequested.connect(worker.close_session)
         self.startLoginRequested.connect(worker.start_login)
         self.downloadExcelRequested.connect(worker.download_export)
         worker.prepared.connect(self._handle_upload_prepared)
+        worker.preflightChecked.connect(self._handle_environment_preflight)
         worker.optionsRefreshed.connect(self._handle_staff_options_refreshed)
         worker.loginStateChanged.connect(self._handle_login_state_changed)
         worker.exportDownloaded.connect(self._handle_export_downloaded)
@@ -1184,6 +1350,16 @@ class UploadLabMainWindow(FluentWindow):
 
     def _handle_upload_failed(self, operation: str, error_message: str) -> None:
         self.uploadBusy = False
+        if operation == "preflight":
+            self._handle_environment_preflight(
+                {
+                    "status": "blocked",
+                    "error_code": "worker_error",
+                    "message": error_message,
+                    "guidance": "Thử lại kiểm tra môi trường hoặc gửi log cho bộ phận hỗ trợ.",
+                }
+            )
+            return
         self.uploadSessionActive = self.uploadWorker is not None
         if operation == "download":
             self.downloadExcelButton.setEnabled(True)
@@ -1213,6 +1389,14 @@ class UploadLabMainWindow(FluentWindow):
     def closeEvent(self, event) -> None:
         if self.scanThread is not None and self.scanThread.isRunning():
             QMessageBox.information(self, "Upload Lab", "Dang scan folder. Hay doi scan xong truoc khi dong app.")
+            event.ignore()
+            return
+        if self.environmentThread is not None and self.environmentThread.isRunning():
+            QMessageBox.information(
+                self,
+                "Upload Lab",
+                "Đang kiểm tra môi trường. Hãy đợi kiểm tra hoàn tất trước khi đóng app.",
+            )
             event.ignore()
             return
         if self.uploadWorker is not None or (self.uploadThread is not None and self.uploadThread.isRunning()):
