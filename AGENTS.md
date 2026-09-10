@@ -1,9 +1,10 @@
-﻿# AGENTS.md — upload_lab
+# AGENTS.md — upload_lab
 
 ## Sources of truth
 - `README.md` — pipeline 3 giai đoạn, sơ đồ codebase, lệnh chạy/test
 - `docs/regex-rules.md` — quy chuẩn trích xuất theo từng loại văn bản
 - `docs/spec_UI.md` — UI
+- `agent.md` — quy trình agent, Linear issue và bảo mật
 
 ## Rules
 - Không tự chuyển chế độ Finalize thành mặc định. Dry-run là mặc định.

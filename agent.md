@@ -10,6 +10,17 @@
 - Do not create or maintain local `spec`, `plan`, or `issue` files.
 - Keep local documentation only when it is operational guidance, a user-facing reference, or a durable domain catalog that is not a work item.
 
+## Cross-product context (read only when needed)
+
+`D:\systemdocs` — tài liệu cấp cha cho họ sản phẩm công chứng (`notary_v2`, `upload_lab`, `notaryoffice`).
+Task thường ngày **không cần** đọc. Chỉ đọc khi task chạm ranh giới sản phẩm,
+khóa định danh dùng chung, hoặc tích hợp: `PROJECTS.md`,
+`contracts/entities.md`, `OPEN_DECISIONS.md`. Repo này thắng về hành vi nội bộ.
+
+**Bắt buộc đọc `TECH_STACK.md` trước khi** thêm/đổi công nghệ (thư viện đọc
+file, OCR, DB, queue, framework UI) hoặc ra quyết định kiến trúc. Ba repo sẽ
+gộp về một database dùng chung, chọn lệch nhau là viết lại sau.
+
 ## Required workflow
 
 1. Search Linear before starting work to find an existing issue.
