@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const SENSITIVE_KEYS = new Set(['credential', 'cookie', 'password', 'access_token']);
 
@@ -40,6 +41,7 @@ export function createClient({ baseUrl, token, fetchImpl = fetch }) {
     return data;
   }
   return {
+    healthz() { return request('/healthz', { method: 'GET', headers: {} }); },
     submit(command, payload = {}) {
       validatePayload(payload);
       const commandId = crypto.randomUUID();
@@ -54,9 +56,33 @@ export function createClient({ baseUrl, token, fetchImpl = fetch }) {
   };
 }
 
-export function startSidecar({ python = 'python', port, spawnImpl = spawn }) {
+export async function waitForSidecar(client, { timeoutMs = 5000, intervalMs = 100 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      const health = await client.healthz();
+      if (health.status === 'ok') return health;
+      lastError = new Error('DesktopCommand sidecar is unhealthy');
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw lastError || new Error('DesktopCommand sidecar did not become ready');
+}
+
+export function startSidecar({
+  python = 'python',
+  port,
+  cwd = fileURLToPath(new URL('../../../', import.meta.url)),
+  spawnImpl = spawn,
+}) {
   const token = randomBytes(32).toString('base64url');
-  const child = spawnImpl(python, ['-m', 'poc.desktop_command.server', '--port', String(port)], {
+  const args = ['-m', 'poc.desktop_command.server', '--port', String(port)];
+  if (process.env.DESKTOP_COMMAND_POC_FAKE_WORKER === '1') args.push('--fake-worker');
+  const child = spawnImpl(python, args, {
+    cwd,
     env: { ...process.env, DESKTOP_COMMAND_TOKEN: token },
     stdio: 'ignore',
     windowsHide: true,
@@ -69,13 +95,28 @@ async function startElectron() {
   const port = Number(process.env.DESKTOP_COMMAND_PORT || 8765);
   const { child, client } = startSidecar({ port });
   app.on('before-quit', () => child.kill());
+  try {
+    await waitForSidecar(client);
+  } catch (error) {
+    child.kill();
+    throw error;
+  }
   ipcMain.handle('desktop-command:submit', (_event, command, payload) => client.submit(command, payload));
   ipcMain.handle('desktop-command:get-status', (_event, jobId) => client.getStatus(jobId));
   await app.whenReady();
   const window = new BrowserWindow({
-    webPreferences: { contextIsolation: true, nodeIntegration: false, preload: new URL('./preload.js', import.meta.url).pathname },
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: fileURLToPath(new URL('./preload.js', import.meta.url)),
+    },
   });
-  await window.loadFile(new URL('./renderer.html', import.meta.url).pathname);
+  await window.loadFile(fileURLToPath(new URL('./renderer.html', import.meta.url)));
 }
 
-if (process.versions.electron) startElectron();
+if (process.versions.electron) {
+  startElectron().catch((error) => {
+    console.error(`DesktopCommand POC startup failed: ${error?.stack || error}`);
+    process.exitCode = 1;
+  });
+}

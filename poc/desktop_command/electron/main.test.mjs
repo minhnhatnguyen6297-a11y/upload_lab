@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createClient, validatePayload } from './main.js';
+import { createClient, startSidecar, validatePayload, waitForSidecar } from './main.js';
 
 test('sensitive renderer payload is rejected before main fetch', () => {
   assert.throws(() => validatePayload({ cookie: 'secret' }), /sensitive/i);
@@ -36,4 +36,35 @@ test('client does not retry an HTTP rejection', async () => {
     /forbidden/
   );
   assert.equal(attempts, 1);
+});
+
+test('sidecar readiness retries then reports health', async () => {
+  let attempts = 0;
+  const health = await waitForSidecar({
+    healthz: async () => {
+      attempts += 1;
+      if (attempts < 3) throw new Error('connection refused');
+      return { status: 'ok' };
+    },
+  }, { timeoutMs: 100, intervalMs: 1 });
+
+  assert.equal(health.status, 'ok');
+  assert.equal(attempts, 3);
+});
+
+test('sidecar starts from the repository root so Python module imports resolve', () => {
+  let invocation;
+  const child = { kill() {} };
+  startSidecar({
+    port: 8945,
+    spawnImpl: (python, args, options) => {
+      invocation = { python, args, options };
+      return child;
+    },
+  });
+
+  assert.match(invocation.options.cwd, /desktop-command-poc[\\/]?$/);
+  assert.doesNotMatch(invocation.options.cwd, /poc[\\/]desktop_command[\\/]electron[\\/]?$/);
+  assert.deepEqual(invocation.args.slice(0, 3), ['-m', 'poc.desktop_command.server', '--port']);
+  assert.match(invocation.options.env.DESKTOP_COMMAND_TOKEN, /.+/);
 });

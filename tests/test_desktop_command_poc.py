@@ -165,6 +165,16 @@ def test_runtime_bridge_reports_scan_as_unconfigured_without_business_mapping(mo
     assert registry.get(job.job_id).error["code"] == "scan_unavailable"
 
 
+def test_runtime_fake_worker_allows_safe_waiting_user_smoke(tmp_path) -> None:
+    from poc.desktop_command.models import CommandRequest
+    from poc.desktop_command.runtime import create_worker_backed_registry
+
+    registry, _bridge = create_worker_backed_registry(tmp_path, fake_worker=True)
+    job = registry.submit(CommandRequest(command_id="c-fake", command="start_upload", payload={}))
+
+    assert registry.get(job.job_id).status == "waiting_user"
+
+
 def test_get_status_command_returns_existing_job_without_enqueue() -> None:
     from poc.desktop_command.models import CommandRequest
     from poc.desktop_command.registry import CommandRegistry

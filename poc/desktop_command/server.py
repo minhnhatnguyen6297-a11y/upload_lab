@@ -75,13 +75,18 @@ def main() -> int:
     parser.add_argument("--port", type=int, required=True, help="explicit loopback port")
     parser.add_argument("--host", default="127.0.0.1", help="must remain loopback")
     parser.add_argument("--token", help="startup token; generated only for local manual POC use")
+    parser.add_argument(
+        "--fake-worker",
+        action="store_true",
+        help="use no-browser fake worker for isolated Electron smoke/measurement only",
+    )
     args = parser.parse_args()
     if args.host != "127.0.0.1":
         parser.error("DesktopCommand POC binds only 127.0.0.1")
     token = args.token or os.environ.get("DESKTOP_COMMAND_TOKEN") or secrets.token_urlsafe(32)
     from .runtime import create_worker_backed_registry
 
-    app = create_app(create_worker_backed_registry(os.getcwd())[0], token=token)
+    app = create_app(create_worker_backed_registry(os.getcwd(), fake_worker=args.fake_worker)[0], token=token)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning", access_log=False)
     return 0
 

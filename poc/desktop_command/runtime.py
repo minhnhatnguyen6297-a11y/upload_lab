@@ -9,14 +9,28 @@ from .bridge import UploadWorkerBridge
 from .registry import CommandRegistry
 
 
-def create_worker_backed_registry(working_dir: Path) -> tuple[CommandRegistry, UploadWorkerBridge]:
+class _FakeUploadWorker:
+    """Safe POC worker for Electron loopback smoke and measurement only."""
+
+    def start_login(self) -> None:
+        return None
+
+    def close_session(self) -> None:
+        return None
+
+
+def create_worker_backed_registry(
+    working_dir: Path,
+    *,
+    fake_worker: bool = False,
+) -> tuple[CommandRegistry, UploadWorkerBridge]:
     """Wire the POC sidecar to public UploadWorker slots without the Qt UI.
 
     `scan_document` remains deliberately unavailable here: it needs a separately
     approved mapping to upload_lab's preparation inputs. The command reports a
     structured failed job rather than inventing that business mapping.
     """
-    worker = UploadWorker(working_dir)
+    worker = _FakeUploadWorker() if fake_worker else UploadWorker(working_dir)
     holder: dict[str, UploadWorkerBridge] = {}
     registry = CommandRegistry(
         lambda command, payload, job_id: holder["bridge"].submit(command, payload, job_id)
