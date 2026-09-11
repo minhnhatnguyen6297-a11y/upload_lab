@@ -38,7 +38,7 @@ def test_scanned_pdf_is_denied_without_calling_converter(tmp_path: Path) -> None
     calls = []
     envelope = convert_path(_pdf(tmp_path / "scan.pdf", with_text=False), converter=lambda path: calls.append(path))
 
-    assert envelope["route"] == "ocr_denied"
+    assert envelope["route"] == "ocr_candidate"
     assert calls == []
     assert envelope["ocr_calls"] == []
     assert envelope["warnings"] == ["cloud_ocr_not_authorized"]

@@ -22,7 +22,7 @@ def _route(path: Path, data: bytes) -> str:
         try:
             document = fitz.open(stream=data, filetype="pdf")
             try:
-                return "local" if any(page.get_text("text").strip() for page in document) else "ocr_denied"
+                return "local" if any(page.get_text("text").strip() for page in document) else "ocr_candidate"
             finally:
                 document.close()
         except Exception:
@@ -30,7 +30,7 @@ def _route(path: Path, data: bytes) -> str:
     if suffix == ".doc" and data.startswith(b"\xd0\xcf\x11\xe0"):
         return "legacy_doc_external"
     if suffix in {".png", ".jpg", ".jpeg"}:
-        return "ocr_denied"
+        return "ocr_candidate"
     return "unsupported"
 
 
@@ -72,7 +72,7 @@ def convert_path(path: Path, *, converter: Callable[[Path], str] = _markitdown) 
         envelope["warnings"].append("provenance_not_asserted_by_markitdown")
     elif route == "legacy_doc_external":
         envelope["warnings"].append("legacy_doc_requires_upload_lab_ifilter")
-    elif route == "ocr_denied":
+    elif route == "ocr_candidate":
         envelope["warnings"].append("cloud_ocr_not_authorized")
     else:
         envelope["errors"].append({"code": "unsupported_input", "message": "Input is unsupported by the local POC"})

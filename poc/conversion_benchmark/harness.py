@@ -120,7 +120,7 @@ def _provenance_status(envelope: dict[str, Any]) -> str:
         return "warning"
     if envelope["route"] == "unsupported":
         return "source-hash"
-    if envelope["route"] == "ocr_denied":
+    if envelope["route"] == "ocr_candidate":
         return "ocr-call-or-warning"
     return "none"
 
@@ -130,7 +130,7 @@ def _recommendation(route: str) -> str:
         return "iterate: provenance/source-segment gate remains unmet"
     if route == "legacy_doc_external":
         return "not_adopt: preserve Windows IFilter boundary"
-    if route == "ocr_denied":
+    if route == "ocr_candidate":
         return "not_adopt: OCR needs a separately approved gate"
     return "not_adopt: unsupported input remains structured error"
 
