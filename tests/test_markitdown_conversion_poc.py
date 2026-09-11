@@ -16,6 +16,16 @@ def _pdf(path: Path, *, with_text: bool) -> Path:
     return path
 
 
+def _text_pdf(path: Path, *texts: str) -> Path:
+    document = fitz.open()
+    for text in texts:
+        page = document.new_page()
+        page.insert_text((72, 72), text)
+    path.write_bytes(document.tobytes())
+    document.close()
+    return path
+
+
 def test_docx_routes_locally_with_plugins_disabled(tmp_path: Path) -> None:
     from poc.conversion_benchmark.router import convert_path
 
@@ -30,6 +40,23 @@ def test_docx_routes_locally_with_plugins_disabled(tmp_path: Path) -> None:
     assert envelope["content"]["value"] == "Synthetic contract"
     assert envelope["converter"]["config"] == "plugins-disabled"
     assert envelope["converter"]["version"] == "injected-test"
+
+
+def test_text_pdf_records_page_source_refs_without_ocr(tmp_path: Path) -> None:
+    from poc.conversion_benchmark.router import convert_path
+
+    envelope = convert_path(
+        _text_pdf(tmp_path / "text.pdf", "Page one", "Page two"),
+        converter=lambda _: "# local markdown",
+    )
+
+    assert envelope["content"]["value"] == "# local markdown"
+    assert envelope["segments"] == [
+        {"text": "Page one\n", "source_ref": {"page": 1}},
+        {"text": "Page two\n", "source_ref": {"page": 2}},
+    ]
+    assert envelope["warnings"] == []
+    assert envelope["ocr_calls"] == []
 
 
 def test_scanned_pdf_is_denied_without_calling_converter(tmp_path: Path) -> None:
@@ -110,6 +137,8 @@ def test_persistent_golden_manifest_hashes_and_routes(tmp_path: Path) -> None:
     manifest = load_persistent_golden()
     assert len(manifest) == 7
     assert all(item["sha256"] for item in manifest)
+    assert manifest[0]["sample_id"] == "GD-01"
+    assert manifest[0]["expected_provenance"] == "source-ref"
     report = run_benchmark(
         manifest,
         tmp_path / "persistent-report.json",

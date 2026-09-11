@@ -40,6 +40,18 @@ def _markitdown(path: Path) -> str:
     return MarkItDown(enable_plugins=False).convert(str(path)).markdown
 
 
+def _pdf_page_segments(data: bytes) -> list[dict]:
+    """Return page-addressable plain text without changing converter Markdown."""
+    document = fitz.open(stream=data, filetype="pdf")
+    try:
+        return [
+            {"text": page.get_text("text"), "source_ref": {"page": page_number}}
+            for page_number, page in enumerate(document, start=1)
+        ]
+    finally:
+        document.close()
+
+
 def convert_path(path: Path, *, converter: Callable[[Path], str] = _markitdown) -> dict:
     """Convert only locally permitted inputs; cloud OCR is intentionally unavailable."""
     data = path.read_bytes()
@@ -68,6 +80,14 @@ def convert_path(path: Path, *, converter: Callable[[Path], str] = _markitdown) 
             envelope["errors"].append({"code": "local_conversion_failed", "message": str(exc)})
             return envelope
         envelope["content"]["value"] = text
+        if path.suffix.lower() == ".pdf":
+            try:
+                segments = _pdf_page_segments(data)
+            except Exception:
+                segments = []
+            if segments:
+                envelope["segments"].extend(segments)
+                return envelope
         envelope["segments"].append({"text": text, "source_ref": None})
         envelope["warnings"].append("provenance_not_asserted_by_markitdown")
     elif route == "legacy_doc_external":
