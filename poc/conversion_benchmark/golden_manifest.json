@@ -1,0 +1,12 @@
+{
+  "manifest_version": "v0.synthetic",
+  "sources": [
+    {"sample_id": "GD-01", "filename": "GD-01-text.pdf", "mime": "application/pdf", "sensitivity": "synthetic", "expected_route": "local", "expected_text_contains": "Synthetic PDF text", "expected_provenance": "warning"},
+    {"sample_id": "GD-02", "filename": "GD-02-scan.pdf", "mime": "application/pdf", "sensitivity": "synthetic", "expected_route": "ocr_denied", "expected_text_contains": "", "expected_provenance": "ocr-call-or-warning"},
+    {"sample_id": "GD-03", "filename": "GD-03.docx", "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "sensitivity": "synthetic", "expected_route": "local", "expected_text_contains": "Synthetic DOCX paragraph", "expected_provenance": "warning"},
+    {"sample_id": "GD-04", "filename": "GD-04.xlsx", "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "sensitivity": "synthetic", "expected_route": "local", "expected_text_contains": "Synthetic", "expected_provenance": "warning"},
+    {"sample_id": "GD-05", "filename": "GD-05.doc", "mime": "application/msword", "sensitivity": "synthetic", "expected_route": "legacy_doc_external", "expected_text_contains": "", "expected_provenance": "warning"},
+    {"sample_id": "GD-06", "filename": "GD-06.png", "mime": "image/png", "sensitivity": "synthetic", "expected_route": "ocr_denied", "expected_text_contains": "", "expected_provenance": "ocr-call-or-warning"},
+    {"sample_id": "GD-07", "filename": "GD-07-broken.pdf", "mime": "application/pdf", "sensitivity": "synthetic", "expected_route": "unsupported", "expected_text_contains": "", "expected_provenance": "source-hash"}
+  ]
+}
