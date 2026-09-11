@@ -2,7 +2,7 @@
 
 Date: 2026-09-11
 Branch: `codex/desktop-command-poc`
-Baseline commit: `0c4edf78f708c7fcf3a9a03ba93dc42a0bb85d62`
+Implementation snapshot: `53cc1784f4fb79b95fab1b97446a6abb01b4943d`
 Conclusion: **ITERATE** (POC boundary works; no production adoption decision).
 
 ## Scope and safety
@@ -13,6 +13,8 @@ Conclusion: **ITERATE** (POC boundary works; no production adoption decision).
   Playwright, open the provincial website, use credentials, or capture customer
   data.
 - The existing PySide6 UI and production startup files were not changed.
+- This snapshot is still a POC; it does not claim production adoption or a
+  shared UI/database contract.
 
 ## Verification matrix
 
