@@ -25,7 +25,9 @@ flowchart LR
    - Đương sự (`duong_su`, `nguoi_yeu_cau`), Tài sản (`tai_san`, `loai_tai_san`), Số công chứng (`so_cong_chung`), Ngày công chứng, Công chứng viên, Nhóm hợp đồng.
 4. **Lưu trữ**:
    - Ghi JSON chi tiết vào thư mục `output/<so_cc>_<hash>.json`.
-   - Ghi bản ghi vào `registry.sqlite3` (trạng thái ban đầu: `SCANNED`).
+   - Ghi bản ghi vào `registry.sqlite3`; trạng thái trích xuất được ghi theo
+     lifecycle hiện hành (`matched`, `extracted`, `extract_failed`, hoặc trạng
+     thái bỏ qua tương ứng); không dùng tên trạng thái quét cũ.
    - Xuất file manifest chạy theo đợt vào `runs/<timestamp>.json`.
 
 ### Giai đoạn 2: Đối chiếu & Phân loại hàng đợi (`ui/services/`)
