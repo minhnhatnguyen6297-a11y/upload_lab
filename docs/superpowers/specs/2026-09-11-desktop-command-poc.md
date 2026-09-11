@@ -1,8 +1,8 @@
 # DesktopCommand Electron POC — measurement report
 
-Date: 2026-09-11  
-Branch: `codex/desktop-command-poc`  
-Baseline commit: `0c4edf78f708c7fcf3a9a03ba93dc42a0bb85d62`  
+Date: 2026-09-11
+Branch: `codex/desktop-command-poc`
+Baseline commit: `0c4edf78f708c7fcf3a9a03ba93dc42a0bb85d62`
 Conclusion: **ITERATE** (POC boundary works; no production adoption decision).
 
 ## Scope and safety
