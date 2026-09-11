@@ -102,3 +102,19 @@ def test_golden_harness_reports_routes_hashes_and_zero_cloud(tmp_path: Path) -> 
     assert next(item for item in report["results"] if item["sample_id"] == "GD-03")["baseline_text_contains"] is True
     assert next(item for item in report["results"] if item["sample_id"] == "GD-04")["baseline_available"] is True
     assert next(item for item in report["results"] if item["sample_id"] == "GD-01")["recommendation"].startswith("iterate")
+
+
+def test_persistent_golden_manifest_hashes_and_routes(tmp_path: Path) -> None:
+    from poc.conversion_benchmark.harness import load_persistent_golden, run_benchmark
+
+    manifest = load_persistent_golden()
+    assert len(manifest) == 7
+    assert all(item["sha256"] for item in manifest)
+    report = run_benchmark(
+        manifest,
+        tmp_path / "persistent-report.json",
+        converter=lambda path: "Synthetic PDF text\nSynthetic DOCX paragraph\nSynthetic",
+    )
+
+    assert report["summary"] == {"total": 7, "completed": 7, "partial": 0}
+    assert report["cloud_call_count"] == 0

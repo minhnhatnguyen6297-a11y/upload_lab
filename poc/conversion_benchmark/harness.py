@@ -75,6 +75,27 @@ def materialize_golden(directory: Path) -> list[dict[str, Any]]:
     return [{**entry, "path": str(directory / entry.pop("filename"))} for entry in template["sources"]]
 
 
+def load_persistent_golden(directory: Path | None = None) -> list[dict[str, Any]]:
+    """Load committed synthetic fixtures and fail closed on a hash mismatch."""
+    golden_dir = Path(__file__).with_name("golden") if directory is None else directory
+    manifest_path = Path(__file__).with_name("golden_manifest.json")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    entries: list[dict[str, Any]] = []
+    for source in manifest["sources"]:
+        filename = source["filename"]
+        expected_hash = source.get("sha256")
+        if not expected_hash:
+            raise ValueError(f"golden manifest entry has no sha256: {filename}")
+        path = golden_dir / filename
+        if not path.is_file():
+            raise FileNotFoundError(f"golden fixture is missing: {path}")
+        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual_hash != expected_hash:
+            raise ValueError(f"golden fixture hash mismatch: {filename}")
+        entries.append({**source, "path": str(path)})
+    return entries
+
+
 def _revision() -> str:
     try:
         return subprocess.run(["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
