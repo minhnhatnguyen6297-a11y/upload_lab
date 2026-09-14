@@ -5,7 +5,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import (
     QApplication,
-    QHeaderView,
     QLabel,
     QLayout,
     QTableWidget,
@@ -151,7 +150,8 @@ QPushButton:disabled {{
 }}
 
 QLineEdit,
-QComboBox {{
+QComboBox,
+QSpinBox {{
     min-height: {CONTROL_MIN_HEIGHT}px;
     padding-left: {FIELD_HORIZONTAL_PADDING}px;
     padding-right: {FIELD_HORIZONTAL_PADDING}px;
@@ -164,7 +164,8 @@ QComboBox {{
 }}
 
 QLineEdit:focus,
-QComboBox:focus {{
+QComboBox:focus,
+QSpinBox:focus {{
     border: 2px solid {PRIMARY_COLOR};
 }}
 
@@ -284,12 +285,6 @@ def apply_widget_metrics(root: QWidget) -> None:
         table.verticalHeader().setMinimumSectionSize(TABLE_ROW_HEIGHT)
         table.horizontalHeader().setMinimumHeight(TABLE_HEADER_HEIGHT)
         table.horizontalHeader().setStretchLastSection(False)
-
-    excel_display_table = root.findChild(QTableWidget, "excelDisplayTable")
-    if excel_display_table is not None:
-        excel_display_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch
-        )
 
     for object_name in (
         "excelMissingTable",

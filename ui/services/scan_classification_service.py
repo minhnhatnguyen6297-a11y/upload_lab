@@ -14,6 +14,7 @@ class _ScanRecord(Protocol):
     status: str
     source_file: object
     missing_fields: list[str]
+    upload_form: dict
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,7 @@ class FolderScanRow:
     selected: bool
     note: str
     has_issue: bool = False
+    contract_date: str = ""
 
 
 @dataclass(frozen=True)
@@ -115,6 +117,9 @@ def classify_scan_records(
         if normalized and counts_by_contract_no.get(normalized, 0) > 1:
             notes.append("trung trong folder")
 
+        upload_form = getattr(record, "upload_form", None) or {}
+        contract_date = str(upload_form.get("ngay_cong_chung") or "").strip()
+
         folder_rows.append(
             FolderScanRow(
                 record_id=int(record.record_id),
@@ -126,6 +131,7 @@ def classify_scan_records(
                 selected=selected,
                 note="; ".join(notes),
                 has_issue=bool(issue),
+                contract_date=contract_date,
             )
         )
 

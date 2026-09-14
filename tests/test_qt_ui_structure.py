@@ -69,7 +69,7 @@ class QtUIStructureTests(unittest.TestCase):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
         from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QLineEdit, QPushButton, QProgressBar, QTabWidget, QTableWidget
+        from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QLineEdit, QPushButton, QProgressBar, QSpinBox, QTabWidget, QTableWidget
 
         from ui_qt.main_window import UploadLabMainWindow
 
@@ -85,7 +85,6 @@ class QtUIStructureTests(unittest.TestCase):
             ("browseExcelButton", QPushButton),
             ("loadExcelButton", QPushButton),
             ("excelSummaryLabel", QLabel),
-            ("excelDisplayTable", QTableWidget),
             ("excelMissingTable", QTableWidget),
             ("excelIssueTable", QTableWidget),
             ("folderPathEdit", QLineEdit),
@@ -105,6 +104,7 @@ class QtUIStructureTests(unittest.TestCase):
             ("notaryComboBox", QComboBox),
             ("secretaryComboBox", QComboBox),
             ("refreshStaffOptionsButton", QPushButton),
+            ("uploadChunkSizeSpinBox", QSpinBox),
             ("uploadProgressBar", QProgressBar),
             ("uploadProgressLabel", QLabel),
             ("stopUploadButton", QPushButton),
@@ -116,14 +116,16 @@ class QtUIStructureTests(unittest.TestCase):
                 self.assertIsNotNone(widget)
                 self.assertIsInstance(widget, widget_type)
 
-        for table in (window.excelDisplayTable, window.excelMissingTable, window.excelIssueTable):
+        self.assertIsNone(window.ui.findChild(QTableWidget, "excelDisplayTable"))
+        for table in (window.excelMissingTable, window.excelIssueTable):
             self.assertEqual(table.verticalScrollBarPolicy(), Qt.ScrollBarAlwaysOn)
             self.assertEqual(table.editTriggers(), table.EditTrigger.NoEditTriggers)
         self.assertEqual(window.excelIssueTable.horizontalScrollBarPolicy(), Qt.ScrollBarAlwaysOn)
-        self.assertEqual(
-            [window.excelMissingTable.horizontalHeaderItem(index).text() for index in range(window.excelMissingTable.columnCount())],
-            ["So thieu", "Nam", "STT", "Chu thich"],
-        )
+        for table in (window.excelMissingTable, window.excelIssueTable):
+            self.assertEqual(
+                [table.horizontalHeaderItem(index).text() for index in range(table.columnCount())],
+                ["STT", "Ngay", "So cong chung", "Ghi chu"],
+            )
         self.assertEqual(window.scanResultTabs.count(), 1)
         self.assertEqual(window.scanResultTabs.tabText(0), "Cac so trong folder")
         self.assertIsNotNone(app)
@@ -141,8 +143,8 @@ class QtUIStructureTests(unittest.TestCase):
         window = UploadLabMainWindow()
         classification = ScanClassification(
             folder_rows=[
-                FolderScanRow(10, "10/2026/CCGD", "10/2026", "extracted", "a.docx", [], False, "da co trong Excel", False),
-                FolderScanRow(11, "11/2026/CCGD", "11/2026", "extracted", "b.docx", [], True, "chua co trong Excel", False),
+                FolderScanRow(10, "10/2026/CCGD", "10/2026", "extracted", "a.docx", [], False, "da co trong Excel", False, "05/01/2026"),
+                FolderScanRow(11, "11/2026/CCGD", "11/2026", "extracted", "b.docx", [], True, "chua co trong Excel", False, "06/01/2026"),
             ],
             missing_in_excel_record_ids={11},
             has_excel=True,
@@ -151,6 +153,12 @@ class QtUIStructureTests(unittest.TestCase):
         window.render_scan_classification(classification)
 
         self.assertEqual(window.folderNumbersTable.rowCount(), 2)
+        self.assertEqual(
+            [window.folderNumbersTable.horizontalHeaderItem(index).text() for index in range(window.folderNumbersTable.columnCount())],
+            ["Chon", "STT", "Ngay", "So cong chung", "Ghi chu", "Dia chi file"],
+        )
+        self.assertEqual(window.folderNumbersTable.item(0, 2).text(), "06/01/2026")
+        self.assertEqual(window.folderNumbersTable.item(0, 3).text(), "11/2026/CCGD")
         self.assertEqual(window.folderNumberSelection.selected_record_ids(), [11])
         self.assertTrue(window.selectAllValidButton.isEnabled())
         self.assertTrue(window.clearValidSelectionButton.isEnabled())
@@ -207,12 +215,15 @@ class QtUIStructureTests(unittest.TestCase):
 
         window.render_scan_classification(classification)
 
-        self.assertEqual([window.folderNumbersTable.item(row, 1).text() for row in range(3)], ["10", "11", "12"])
+        self.assertEqual(
+            [window.folderNumbersTable.item(row, 0).data(Qt.ItemDataRole.UserRole) for row in range(3)],
+            [10, 11, 12],
+        )
 
         window.filter_issue_numbers()
 
         self.assertEqual(window.folderNumberSelection.selected_record_ids(), [11])
-        self.assertEqual(window.folderNumbersTable.item(0, 1).text(), "11")
+        self.assertEqual(window.folderNumbersTable.item(0, 0).data(Qt.ItemDataRole.UserRole), 11)
         self.assertEqual(window.folderNumbersTable.item(0, 0).checkState(), Qt.Checked)
         self.assertEqual(window.filterIssueNumbersButton.text(), "Hoan tac loc so loi")
 
@@ -269,20 +280,20 @@ class QtUIStructureTests(unittest.TestCase):
             window = UploadLabMainWindow(working_dir=temp_root)
             window.fromDateEdit.setText("01/01/2026")
             window.toDateEdit.setText("18/06/2026")
-            export_path = temp_root / "downloads" / "book.xlsx"
+            commands = []
+            window.downloadExcelRequested.connect(commands.append)
 
-            with patch.object(window, "ensure_upload_runtime_ready", return_value=True), patch(
-                "ui_qt.main_window.download_contract_book_export",
-                return_value=export_path,
-            ) as mocked_download, patch.object(window, "load_excel") as mocked_load_excel:
+            with patch.object(window, "ensure_upload_runtime_ready", return_value=True), patch.object(
+                window, "_ensure_upload_worker", return_value=MagicMock()
+            ):
                 window.download_excel_from_web()
 
-            mocked_download.assert_called_once_with(
-                from_date="01/01/2026",
-                to_date="18/06/2026",
-                working_dir=temp_root,
-                log_callback=window._log_message,
-            )
+            self.assertEqual(commands, [{"from_date": "01/01/2026", "to_date": "18/06/2026"}])
+            self.assertTrue(window.uploadBusy)
+            self.assertFalse(window.downloadExcelButton.isEnabled())
+            export_path = temp_root / "downloads" / "book.xlsx"
+            with patch.object(window, "load_excel") as mocked_load_excel:
+                window._handle_export_downloaded(str(export_path))
             self.assertEqual(window.excelPathEdit.text(), str(export_path))
             mocked_load_excel.assert_called_once_with()
         self.assertIsNotNone(app)
@@ -326,12 +337,76 @@ class QtUIStructureTests(unittest.TestCase):
 
             self.assertEqual(len(commands), 1)
             self.assertEqual(commands[0]["selected_record_ids"], [21])
-            self.assertEqual(commands[0]["cong_chung_vien"], "Phạm Minh Chi")
-            self.assertEqual(commands[0]["thu_ky"], "Nguyễn Nhật Minh")
+            self.assertEqual(commands[0]["chunk_size"], 10)
+            self.assertIsNone(commands[0]["cong_chung_vien"])
+            self.assertIsNone(commands[0]["thu_ky"])
             self.assertTrue(window.uploadBusy)
             self.assertTrue(window.stopUploadButton.isEnabled())
             self.assertFalse(window.continueUploadButton.isEnabled())
             self.assertFalse(window.closeUploadBrowserButton.isEnabled())
+        self.assertIsNotNone(app)
+
+    def test_prepare_upload_keeps_secretary_empty_when_user_has_not_selected_one(self):
+        """A blank secretary must remain blank instead of silently choosing a person."""
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from PySide6.QtWidgets import QApplication
+
+        from ui.services.scan_classification_service import FolderScanRow, ScanClassification
+        from ui_qt.main_window import UploadLabMainWindow
+
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            window = UploadLabMainWindow(working_dir=temp_root)
+            window.current_manifest_path = temp_root / "runs" / "manifest.json"
+            window.current_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            window.current_manifest_path.write_text("{}", encoding="utf-8")
+            window.render_scan_classification(
+                ScanClassification(
+                    folder_rows=[FolderScanRow(41, "41/2026/CCGD", "41/2026", "extracted", "a.docx", [], True, "new")],
+                    missing_in_excel_record_ids={41},
+                    has_excel=True,
+                )
+            )
+            window.secretaryComboBox.setCurrentIndex(-1)
+            commands = []
+            window.prepareUploadRequested.connect(commands.append)
+
+            with patch.object(window, "ensure_upload_runtime_ready", return_value=True), patch.object(
+                window, "_ensure_upload_worker", return_value=MagicMock()
+            ):
+                window.handle_upload_selected()
+
+            self.assertIsNone(commands[0]["thu_ky"])
+        self.assertIsNotNone(app)
+
+    def test_refresh_preserves_manual_deselection_and_removes_only_saved_record(self):
+        """Refreshing after B is saved must not re-select manually deselected A."""
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+        from PySide6.QtWidgets import QApplication
+
+        from ui.services.scan_classification_service import FolderScanRow, ScanClassification
+        from ui_qt.main_window import UploadLabMainWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = UploadLabMainWindow()
+        classification = ScanClassification(
+            folder_rows=[
+                FolderScanRow(51, "51/2026/CCGD", "51/2026", "extracted", "a.docx", [], True, "new"),
+                FolderScanRow(52, "52/2026/CCGD", "52/2026", "extracted", "b.docx", [], True, "new"),
+                FolderScanRow(53, "53/2026/CCGD", "53/2026", "extracted", "c.docx", [], True, "new"),
+            ],
+            missing_in_excel_record_ids={51, 52, 53},
+            has_excel=True,
+        )
+        window.render_scan_classification(classification)
+        window.folderNumberSelection.set_selected(51, False)
+
+        window.render_scan_classification(classification, preserve_selection=True, removed_record_ids={52})
+
+        self.assertEqual(window.folderNumberSelection.selected_record_ids(), [53])
         self.assertIsNotNone(app)
 
     def test_upload_worker_owns_stop_event_across_qthread(self):
@@ -478,13 +553,17 @@ class QtUIStructureTests(unittest.TestCase):
             window.load_excel()
 
             self.assertIn("Excel=3 | hop_le=2 | thieu=1 | loi=1 | trung=0", window.excelSummaryLabel.text())
-            self.assertEqual(window.excelDisplayTable.rowCount(), 2)
-            self.assertEqual(window.excelDisplayTable.item(0, 1).text(), "1/2026")
             self.assertEqual(window.excelMissingTable.rowCount(), 1)
-            self.assertEqual(window.excelMissingTable.item(0, 0).text(), "2/2026")
+            self.assertEqual(window.excelMissingTable.item(0, 0).text(), "1")
+            self.assertEqual(window.excelMissingTable.item(0, 1).text(), "")
+            self.assertEqual(window.excelMissingTable.item(0, 2).text(), "2/2026")
             self.assertEqual(window.excelMissingTable.item(0, 3).text(), "Thieu that")
             self.assertEqual(window.excelIssueTable.rowCount(), 1)
-            self.assertEqual(window.excelIssueTable.item(0, 0).text(), "sai_format")
+            self.assertEqual(window.excelIssueTable.item(0, 0).text(), "1")
+            self.assertEqual(window.excelIssueTable.item(0, 1).text(), "01/01/2026")
+            self.assertEqual(window.excelIssueTable.item(0, 2).text(), "66.2026")
+            self.assertIn("sai_format", window.excelIssueTable.item(0, 3).text())
+            self.assertIn("dong 4", window.excelIssueTable.item(0, 3).text())
             self.assertIsNotNone(app)
 
     def test_failed_excel_load_clears_new_excel_tables(self):
@@ -496,7 +575,6 @@ class QtUIStructureTests(unittest.TestCase):
 
         app = QApplication.instance() or QApplication([])
         window = UploadLabMainWindow()
-        window.excelDisplayTable.setRowCount(1)
         window.excelMissingTable.setRowCount(1)
         window.excelIssueTable.setRowCount(1)
         window.excelPathEdit.setText(str(Path("missing.xlsx").resolve()))
@@ -506,7 +584,6 @@ class QtUIStructureTests(unittest.TestCase):
 
         mocked_critical.assert_called_once()
         self.assertEqual(window.excelSummaryLabel.text(), "Chua doc Excel.")
-        self.assertEqual(window.excelDisplayTable.rowCount(), 0)
         self.assertEqual(window.excelMissingTable.rowCount(), 0)
         self.assertEqual(window.excelIssueTable.rowCount(), 0)
         self.assertIsNotNone(app)

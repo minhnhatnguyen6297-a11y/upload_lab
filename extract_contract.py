@@ -28,7 +28,6 @@ from typing import Iterable
 # CAU HINH MAC DINH — sua tai day cho phu hop van phong
 # ============================================================
 DEFAULT_CCV = "Phạm Minh Chi"
-DEFAULT_THU_KY = "Nguyễn Nhật Minh"
 CONTRACT_YEAR = "2026"
 CONTRACT_NO_REGEX = re.compile(r"\b(\d+[./]\d{4}(?:/[A-Z0-9]+)*/CCGD)\b", re.IGNORECASE)
 CONTRACT_KEYWORDS = ("hợp đồng", "hop dong", "hđ", "hd")
@@ -1350,7 +1349,7 @@ def _build_payload_generic(filepath, text: str, scan_result: dict, *, extract_mo
         "nhom_hop_dong": guess_nhom_hd(ten_hd),
         "loai_tai_san": guess_loai_tai_san(tai_san, ten_hd),
         "cong_chung_vien": find_ccv(text),
-        "thu_ky": DEFAULT_THU_KY,
+        "thu_ky": "",
         "nguoi_yeu_cau": fmt_nguoi_yeu_cau(nguoi_yeu_cau_party),
         "duong_su": _fmt_duong_su_by_kind(doc_kind, ben_a, ben_b),
         "tai_san": tai_san,
