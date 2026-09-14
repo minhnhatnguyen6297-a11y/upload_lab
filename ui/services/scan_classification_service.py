@@ -14,6 +14,7 @@ class _ScanRecord(Protocol):
     status: str
     source_file: object
     missing_fields: list[str]
+    upload_form: dict | None
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,7 @@ class FolderScanRow:
     selected: bool
     note: str
     has_issue: bool = False
+    contract_date: str = ""
 
 
 @dataclass(frozen=True)
@@ -126,6 +128,7 @@ def classify_scan_records(
                 selected=selected,
                 note="; ".join(notes),
                 has_issue=bool(issue),
+                contract_date=str((getattr(record, "upload_form", None) or {}).get("ngay_cong_chung") or "").strip(),
             )
         )
 

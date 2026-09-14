@@ -69,9 +69,7 @@ from ui_qt.widgets import (
 )
 from ui_qt.workers import EnvironmentCheckWorker, FolderScanWorker, UploadWorker
 
-EXCEL_DISPLAY_HEADERS = ["Ngay", "So cong chung", "Dong Excel"]
-EXCEL_MISSING_HEADERS = ["So thieu", "Nam", "STT", "Chu thich"]
-EXCEL_ISSUE_HEADERS = ["Loai loi", "Dong", "Ngay", "So goc", "So chuan", "Ly do"]
+EXCEL_AUDIT_HEADERS = ["STT", "Ngay", "So cong chung", "Ghi chu"]
 
 
 class UploadLabMainWindow(FluentWindow):
@@ -282,23 +280,7 @@ class UploadLabMainWindow(FluentWindow):
         self.excelSplitter.setObjectName("excelSplitter")
         self.excelSplitter.setChildrenCollapsible(False)
 
-        # 1. Display Table Panel
-        self.excelDisplayPanel = QWidget(self.excelSplitter)
-        self.excelDisplayPanel.setObjectName("excelDisplayPanel")
-        p1_l = QVBoxLayout(self.excelDisplayPanel)
-        p1_l.setObjectName("excelDisplayLayout")
-        p1_l.setContentsMargins(0, 0, 0, 0)
-        self.excelDisplayLabel = CaptionLabel("Danh sách Excel (0)", self.excelDisplayPanel)
-        self.excelDisplayLabel.setObjectName("excelDisplayLabel")
-        p1_l.addWidget(self.excelDisplayLabel)
-        self.excelDisplayTable = QTableWidget(self.excelDisplayPanel)
-        self.excelDisplayTable.setObjectName("excelDisplayTable")
-        self.excelDisplayTable.horizontalHeader().setStretchLastSection(True)
-        self.excelDisplayTable.setAlternatingRowColors(True)
-        p1_l.addWidget(self.excelDisplayTable)
-        self.excelSplitter.addWidget(self.excelDisplayPanel)
-
-        # 2. Missing Table Panel
+        # 1. Missing Table Panel
         self.excelMissingPanel = QWidget(self.excelSplitter)
         self.excelMissingPanel.setObjectName("excelMissingPanel")
         p2_l = QVBoxLayout(self.excelMissingPanel)
@@ -314,7 +296,7 @@ class UploadLabMainWindow(FluentWindow):
         p2_l.addWidget(self.excelMissingTable)
         self.excelSplitter.addWidget(self.excelMissingPanel)
 
-        # 3. Issue Table Panel
+        # 2. Issue Table Panel
         self.excelIssuePanel = QWidget(self.excelSplitter)
         self.excelIssuePanel.setObjectName("excelIssuePanel")
         p3_l = QVBoxLayout(self.excelIssuePanel)
@@ -330,9 +312,8 @@ class UploadLabMainWindow(FluentWindow):
         p3_l.addWidget(self.excelIssueTable)
         self.excelSplitter.addWidget(self.excelIssuePanel)
 
-        self.excelSplitter.setStretchFactor(0, 3)
-        self.excelSplitter.setStretchFactor(1, 2)
-        self.excelSplitter.setStretchFactor(2, 2)
+        self.excelSplitter.setStretchFactor(0, 1)
+        self.excelSplitter.setStretchFactor(1, 1)
 
         data_card_layout.addWidget(self.excelSplitter, 1)
         layout.addWidget(data_card, 1)
@@ -611,16 +592,14 @@ class UploadLabMainWindow(FluentWindow):
             self.toDateEdit.setText(default_export_to_date())
 
         for table, horizontal in (
-            (self.excelDisplayTable, False),
             (self.excelMissingTable, False),
-            (self.excelIssueTable, True),
+            (self.excelIssueTable, False),
         ):
             table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
             configure_audit_table_scrollbars(table, horizontal=horizontal)
 
-        set_table_rows(self.excelDisplayTable, EXCEL_DISPLAY_HEADERS, [], resize_columns=False)
-        set_table_rows(self.excelMissingTable, EXCEL_MISSING_HEADERS, [], resize_columns=False)
-        set_table_rows(self.excelIssueTable, EXCEL_ISSUE_HEADERS, [], resize_columns=False)
+        set_table_rows(self.excelMissingTable, EXCEL_AUDIT_HEADERS, [], resize_columns=False)
+        set_table_rows(self.excelIssueTable, EXCEL_AUDIT_HEADERS, [], resize_columns=False)
 
         self.configureUploaderButton.clicked.connect(self.open_upload_config_dialog)
         self.downloadExcelButton.clicked.connect(self.download_excel_from_web)
@@ -661,7 +640,6 @@ class UploadLabMainWindow(FluentWindow):
             self.kpiMissingVal.setText(f"{summary.missing_count:,}")
             self.kpiIssueVal.setText(f"{summary.issue_count + summary.duplicate_count:,}")
 
-            self.excelDisplayLabel.setText(f"Danh sách Excel ({summary.excel_total})")
             self.excelMissingLabel.setText(f"Số còn thiếu ({summary.missing_count})")
             self.excelIssueLabel.setText(f"Số lỗi, trùng ({summary.issue_count + summary.duplicate_count})")
         else:
@@ -669,15 +647,13 @@ class UploadLabMainWindow(FluentWindow):
             self.kpiValidVal.setText("0")
             self.kpiMissingVal.setText("0")
             self.kpiIssueVal.setText("0")
-            self.excelDisplayLabel.setText("Danh sách Excel (0)")
             self.excelMissingLabel.setText("Số còn thiếu (0)")
             self.excelIssueLabel.setText("Số lỗi, trùng (0)")
 
     def _reset_excel_results(self, summary_text: str) -> None:
         self.contract_book_analysis = None
-        set_table_rows(self.excelDisplayTable, EXCEL_DISPLAY_HEADERS, [], resize_columns=False)
-        set_table_rows(self.excelMissingTable, EXCEL_MISSING_HEADERS, [], resize_columns=False)
-        set_table_rows(self.excelIssueTable, EXCEL_ISSUE_HEADERS, [], resize_columns=False)
+        set_table_rows(self.excelMissingTable, EXCEL_AUDIT_HEADERS, [], resize_columns=False)
+        set_table_rows(self.excelIssueTable, EXCEL_AUDIT_HEADERS, [], resize_columns=False)
         self.excelSummaryLabel.setText(summary_text)
         self._sync_kpi_cards()
 
@@ -932,30 +908,25 @@ class UploadLabMainWindow(FluentWindow):
 
         analysis = self.contract_book_analysis
         set_table_rows(
-            self.excelDisplayTable,
-            EXCEL_DISPLAY_HEADERS,
-            [[row.raw_date, row.contract_no, row.row_index] for row in analysis.display_rows],
-            resize_columns=should_resize_columns,
-        )
-        set_table_rows(
             self.excelMissingTable,
-            EXCEL_MISSING_HEADERS,
-            [[item.contract_no, item.year, item.ordinal, item.note] for item in analysis.missing_numbers],
+            EXCEL_AUDIT_HEADERS,
+            [
+                [index, "", item.contract_no, item.note]
+                for index, item in enumerate(analysis.missing_numbers, start=1)
+            ],
             resize_columns=should_resize_columns,
         )
         set_table_rows(
             self.excelIssueTable,
-            EXCEL_ISSUE_HEADERS,
+            EXCEL_AUDIT_HEADERS,
             [
                 [
-                    issue.kind.value,
-                    issue.row_index,
+                    index,
                     issue.raw_date,
-                    issue.raw_contract_no,
-                    issue.contract_no,
-                    issue.message,
+                    issue.contract_no or issue.raw_contract_no,
+                    f"dong {issue.row_index} | {issue.kind.value}: {issue.message}",
                 ]
-                for issue in analysis.issue_rows
+                for index, issue in enumerate(analysis.issue_rows, start=1)
             ],
             resize_columns=should_resize_columns,
         )
@@ -1034,7 +1005,12 @@ class UploadLabMainWindow(FluentWindow):
             self.scanThread = None
         self.scanWorker = None
         self._sync_folder_upload_controls()
-    def _refresh_scan_results_from_manifest(self) -> None:
+    def _refresh_scan_results_from_manifest(
+        self,
+        *,
+        preserve_selection: bool = False,
+        removed_record_ids: set[int] | None = None,
+    ) -> None:
         if self.current_manifest_path is None:
             self._reset_folder_results("Chua co manifest scan.")
             return
@@ -1050,11 +1026,31 @@ class UploadLabMainWindow(FluentWindow):
             QMessageBox.critical(self, "Upload Lab", f"Khong doc duoc manifest:\n{exc}")
             return
 
-        self.render_scan_classification(classification)
+        self.render_scan_classification(
+            classification,
+            preserve_selection=preserve_selection,
+            removed_record_ids=removed_record_ids,
+        )
 
-    def render_scan_classification(self, classification) -> None:
+    def render_scan_classification(
+        self,
+        classification,
+        *,
+        preserve_selection: bool = False,
+        removed_record_ids: set[int] | None = None,
+    ) -> None:
+        previous_selection = self.folderNumberSelection
+        refreshed_selection = UploadSelection.from_rows(classification.folder_rows)
+        if preserve_selection:
+            retained_ids = previous_selection.row_ids & refreshed_selection.row_ids
+            newly_seen_ids = refreshed_selection.row_ids - previous_selection.row_ids
+            refreshed_selection.selected_ids = (
+                (previous_selection.selected_ids & retained_ids)
+                | (refreshed_selection.selected_ids & newly_seen_ids)
+            )
+        refreshed_selection.selected_ids.difference_update(removed_record_ids or set())
         self.folderScanRows = list(classification.folder_rows)
-        self.folderNumberSelection = UploadSelection.from_rows(classification.folder_rows)
+        self.folderNumberSelection = refreshed_selection
         self.missingInExcelRecordIds = set(classification.missing_in_excel_record_ids)
         self.issueRecordIds = {int(row.record_id) for row in classification.folder_rows if row.has_issue}
         self.issueFilterPreviousSelection = None
@@ -1182,8 +1178,7 @@ class UploadLabMainWindow(FluentWindow):
         return value or default
 
     def _secretary_value(self) -> str:
-        value = self.secretaryEdit.text().strip() if self.secretaryEdit is not None else ""
-        return value or "Nguyễn Nhật Minh"
+        return self.secretaryEdit.text().strip() if self.secretaryEdit is not None else ""
 
     def _apply_staff_options(self, options: dict) -> None:
         combo = self.notaryComboBox
@@ -1322,11 +1317,15 @@ class UploadLabMainWindow(FluentWindow):
 
     def _handle_prepared_pages_changed(self, result: dict) -> None:
         self.openPreparedRecordIds = {int(record_id) for record_id in result.get("open_record_ids") or []}
-        saved_ids = result.get("saved_record_ids") or []
-        closed_ids = result.get("closed_record_ids") or []
+        saved_ids = {int(record_id) for record_id in result.get("saved_record_ids") or []}
+        closed_ids = {int(record_id) for record_id in result.get("closed_record_ids") or []}
         if saved_ids:
+            self.activeUploadSelectedRecordIds.difference_update(saved_ids)
             self._log_message(f"[UPLOAD] Da luu xong {len(saved_ids)} ho so tren web.")
-            self._refresh_scan_results_from_manifest()
+            self._refresh_scan_results_from_manifest(
+                preserve_selection=True,
+                removed_record_ids=saved_ids,
+            )
         if closed_ids:
             self._log_message(f"[UPLOAD] Co {len(closed_ids)} tab da dong truoc khi luu.")
         self._sync_folder_upload_controls()

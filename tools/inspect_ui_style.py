@@ -110,13 +110,11 @@ def main() -> int:
         for name in (
             "excelSummaryLabel",
             "scanSummaryLabel",
-            "excelDisplayLabel",
             "regexPlaceholder",
         ):
             dump_widget(name, window.ui.findChild(QLabel, name))
 
         for name in (
-            "excelDisplayTable",
             "excelMissingTable",
             "excelIssueTable",
             "folderNumbersTable",
@@ -136,7 +134,6 @@ def main() -> int:
             "excelLayout",
             "folderLayout",
             "regexLayout",
-            "excelDisplayLayout",
         ):
             layout = window.ui.findChild(QLayout, name)
             if layout is None:

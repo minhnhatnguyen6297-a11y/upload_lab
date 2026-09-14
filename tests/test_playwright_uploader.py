@@ -40,7 +40,7 @@ def make_output_json(path: Path, *, contract_no: str, file_goc: str, ten_hop_don
             "nhom_hop_dong": "Chuyển nhượng - Mua bán",
             "loai_tai_san": "Đất đai không có tài sản",
             "cong_chung_vien": "Phạm Minh Chi",
-            "thu_ky": "Nguyễn Nhật Minh",
+            "thu_ky": "",
             "nguoi_yeu_cau": "Ông A",
             "duong_su": "BÊN A ...",
             "tai_san": "Thửa đất ...",
@@ -157,6 +157,116 @@ class _FakePreparePage:
 
     def close(self):
         self.close_calls += 1
+
+
+class _FakeAnchorPage:
+    def __init__(self, url: str):
+        self.url = url
+        self.goto_calls: list[str] = []
+        self.closed = False
+
+    def goto(self, url: str, wait_until: str | None = None):
+        self.url = url
+        self.goto_calls.append(url)
+
+    def is_closed(self):
+        return self.closed
+
+
+class _FakeExportLocator:
+    def __init__(self, count: int = 1):
+        self._count = count
+        self.first = self
+        self.clicks = 0
+
+    def count(self):
+        return self._count
+
+    def click(self):
+        self.clicks += 1
+
+
+class _FakeExportDateInputs:
+    def __init__(self):
+        self.items = [
+            SimpleNamespace(click=lambda: None, fill=lambda _value: None, press=lambda _key: None)
+            for _ in range(2)
+        ]
+
+    def count(self):
+        return 2
+
+    def nth(self, index):
+        return self.items[index]
+
+
+class _FakeExportDialog:
+    def __init__(self):
+        self.first = self
+        self.date_inputs = _FakeExportDateInputs()
+        self.download_button = _FakeExportLocator(1)
+
+    def count(self):
+        return 1
+
+    def locator(self, _selector):
+        return self.date_inputs
+
+    def get_by_role(self, *_args, **_kwargs):
+        return self.download_button
+
+
+class _FakeExportPage:
+    def __init__(self):
+        self.url = ""
+        self.closed = False
+        self.dialog = _FakeExportDialog()
+
+    def goto(self, url: str, wait_until: str | None = None):
+        self.url = url
+
+    def get_by_text(self, *_args, **_kwargs):
+        return _FakeExportLocator(1)
+
+    def get_by_role(self, *_args, **_kwargs):
+        return SimpleNamespace(first=self.dialog)
+
+    def wait_for_timeout(self, _ms):
+        pass
+
+    def expect_download(self, **_kwargs):
+        class _DownloadInfo:
+            value = SimpleNamespace(
+                suggested_filename="so_cong_chung.xlsx",
+                save_as=lambda path: Path(path).write_text("xlsx", encoding="utf-8"),
+            )
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        return _DownloadInfo()
+
+    def is_closed(self):
+        return self.closed
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeCdpSession:
+    def __init__(self, *, window_id: int = 7, window_state: str = "minimized"):
+        self.window_id = window_id
+        self.window_state = window_state
+        self.sent: list[tuple[str, dict]] = []
+
+    def send(self, method: str, params: dict | None = None):
+        self.sent.append((method, params or {}))
+        if method == "Browser.getWindowForTarget":
+            return {"windowId": self.window_id, "bounds": {"windowState": self.window_state}}
+        return {}
 
 
 class _FakeTrackedPage:
@@ -910,6 +1020,152 @@ class PlaywrightUploaderQueueTests(unittest.TestCase):
         self.assertEqual(page.close_calls, 0)
         self.assertTrue(Path(result["screenshot"]).exists())
         self.assertTrue(Path(result["debug_json"]).exists())
+
+    def test_download_contract_book_export_leaves_browser_on_listing_page(self):
+        save_uploader_env(
+            {
+                "ND_BASE_URL": "https://example.test",
+                "ND_LOGIN_URL": "https://example.test/login",
+                "ND_CREATE_URL": "https://example.test/ho-so-cong-chung/create",
+                "ND_USERNAME": "operator",
+                "ND_PASSWORD": "secret",
+                "ND_STORAGE_STATE_PATH": "nd_storage_state.json",
+            },
+            base_dir=self.workdir,
+        )
+        session = NamDinhUploaderSession(
+            load_uploader_settings(self.workdir),
+            working_dir=self.workdir,
+            log_callback=lambda _msg: None,
+        )
+        session.anchor_page = _FakeAnchorPage("https://example.test/ho-so-cong-chung/create")
+        export_page = _FakeExportPage()
+        session.context = SimpleNamespace(new_page=lambda: export_page)
+
+        with patch.object(session, "ensure_authenticated", return_value=None):
+            save_path = session.download_contract_book_export(from_date="01/01/2026", to_date="31/01/2026")
+
+        self.assertTrue(save_path.exists())
+        self.assertTrue(export_page.closed)
+        self.assertEqual(
+            session.anchor_page.url,
+            "https://example.test/ho-so-cong-chung?page=1",
+        )
+        self.assertNotIn("/create", session.anchor_page.url)
+
+    def test_prepare_manifest_captures_minimized_window_state(self):
+        run_id = "minimized-run"
+        file_goc = str(self.root / "min.docx")
+        Path(file_goc).write_text("dummy", encoding="utf-8")
+        output = make_output_json(self.workdir / "output" / "min.json", contract_no="555/2026/CCGD", file_goc=file_goc)
+        self._seed_record(file_key="min-1", run_id=run_id, contract_no="555/2026/CCGD", status="extracted", output_json_path=output)
+        manifest_path = self.workdir / "runs" / "min_manifest.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(json.dumps({"run_id": run_id}), encoding="utf-8")
+
+        session = NamDinhUploaderSession(
+            load_uploader_settings(self.workdir),
+            working_dir=self.workdir,
+            log_callback=lambda _msg: None,
+        )
+        fake_cdp = _FakeCdpSession(window_id=7, window_state="minimized")
+        session.anchor_page = _FakeAnchorPage("https://example.test/create")
+        session.context = SimpleNamespace(new_cdp_session=lambda _page: fake_cdp)
+
+        def fake_prepare(record, artifact_dir):
+            screenshot = artifact_dir / "before_save.png"
+            debug_json = artifact_dir / "debug.json"
+            screenshot.write_text("img", encoding="utf-8")
+            debug_json.write_text("{}", encoding="utf-8")
+            return {
+                "status": "prepared_dry_run",
+                "verify_json": "{}",
+                "artifact_dir": str(artifact_dir),
+                "screenshot": str(screenshot),
+                "debug_json": str(debug_json),
+            }
+
+        with patch.object(NamDinhUploaderSession, "ensure_authenticated", return_value=None), patch.object(
+            NamDinhUploaderSession,
+            "_prepare_record",
+            side_effect=fake_prepare,
+        ):
+            summary = session.prepare_manifest(manifest_path, Event())
+
+        self.assertEqual(summary["prepared_count"], 1)
+        self.assertIs(session._minimized_cdp, fake_cdp)
+        self.assertEqual(session._minimized_window_id, 7)
+
+    def test_prepare_record_re_minimizes_window_after_new_page(self):
+        source_path = self.root / "prepare_minimized.docx"
+        source_path.write_text("dummy", encoding="utf-8")
+        artifact_dir = self.workdir / "upload_runs" / "minimized"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+
+        save_uploader_env(
+            {
+                "ND_BASE_URL": "https://example.test",
+                "ND_LOGIN_URL": "https://example.test/login",
+                "ND_CREATE_URL": "https://example.test/create",
+                "ND_USERNAME": "operator",
+                "ND_PASSWORD": "secret",
+                "ND_STORAGE_STATE_PATH": "nd_storage_state.json",
+                "ND_POST_PREPARE_DELAY_MS": "0",
+            },
+            base_dir=self.workdir,
+        )
+        (self.workdir / "nd_storage_state.json").write_text("{}", encoding="utf-8")
+
+        session = NamDinhUploaderSession(
+            load_uploader_settings(self.workdir),
+            working_dir=self.workdir,
+            log_callback=lambda _msg: None,
+        )
+        fake_cdp = _FakeCdpSession(window_id=7, window_state="minimized")
+        session._minimized_cdp = fake_cdp
+        session._minimized_window_id = 7
+
+        page = _FakePreparePage()
+        session.context = SimpleNamespace(new_page=lambda: page)
+        record = SimpleNamespace(
+            contract_no="888/2026/CCGD",
+            source_file=source_path,
+            upload_form={
+                "so_cong_chung": "888/2026/CCGD",
+                "ten_hop_dong": "Hợp đồng demo",
+                "nhom_hop_dong": "Chuyển nhượng - Mua bán",
+                "loai_tai_san": "Đất đai không có tài sản",
+                "tai_san": "Thửa đất demo",
+            },
+        )
+
+        with patch.object(session, "_is_login_page", return_value=False), patch.object(
+            session,
+            "_fill_text",
+            return_value=True,
+        ), patch.object(
+            session,
+            "_fill_dropdown",
+            return_value=True,
+        ), patch.object(
+            session,
+            "_fill_editor",
+            return_value=True,
+        ), patch.object(
+            session,
+            "_verify_record",
+            return_value=({"fields": {"so_cong_chung": {"success": True}}}, False),
+        ):
+            result = session._prepare_record(record, artifact_dir)
+
+        self.assertEqual(result["status"], "prepared_dry_run")
+        minimize_calls = [
+            params for method, params in fake_cdp.sent if method == "Browser.setWindowBounds"
+        ]
+        self.assertTrue(minimize_calls)
+        for params in minimize_calls:
+            self.assertEqual(params["windowId"], 7)
+            self.assertEqual(params["bounds"], {"windowState": "minimized"})
 
     def test_fill_dropdown_supports_native_select(self):
         session = NamDinhUploaderSession(

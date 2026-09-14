@@ -48,7 +48,7 @@ def configure_audit_table_scrollbars(table: QTableWidget, *, horizontal: bool = 
 
 
 def set_checkable_upload_rows(table: QTableWidget, rows: list) -> None:
-    headers = ["Chon", "ID", "So", "Trang thai", "Ghi chu", "File"]
+    headers = ["Chon", "STT", "Ngay", "So cong chung", "Ghi chu", "Dia chi file"]
     table.clear()
     table.clearContents()
     table.setColumnCount(len(headers))
@@ -67,20 +67,20 @@ def set_checkable_upload_rows(table: QTableWidget, rows: list) -> None:
         check_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         table.setItem(row_index, 0, check_item)
 
-        id_item = QTableWidgetItem(str(row.record_id))
-        id_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        table.setItem(row_index, 1, id_item)
+        stt_item = QTableWidgetItem(str(row_index + 1))
+        stt_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        table.setItem(row_index, 1, stt_item)
+
+        date_item = QTableWidgetItem(str(row.contract_date or ""))
+        date_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        table.setItem(row_index, 2, date_item)
 
         so_item = QTableWidgetItem(str(row.contract_no))
         so_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         so_font = so_item.font()
         so_font.setBold(True)
         so_item.setFont(so_font)
-        table.setItem(row_index, 2, so_item)
-
-        status_item = QTableWidgetItem(str(row.status))
-        status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        table.setItem(row_index, 3, status_item)
+        table.setItem(row_index, 3, so_item)
 
         note_str = str(row.note)
         note_item = QTableWidgetItem(note_str)

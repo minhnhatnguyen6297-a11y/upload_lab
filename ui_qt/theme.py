@@ -65,7 +65,6 @@ LAYOUT_MARGINS = {
     "excelLayout": (PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN),
     "folderLayout": (PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN),
     "regexLayout": (PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN, PAGE_MARGIN),
-    "excelDisplayLayout": (PANEL_MARGIN, PANEL_MARGIN, PANEL_MARGIN, PANEL_MARGIN),
     "excelMissingLayout": (PANEL_MARGIN, PANEL_MARGIN, PANEL_MARGIN, PANEL_MARGIN),
     "excelIssueLayout": (PANEL_MARGIN, PANEL_MARGIN, PANEL_MARGIN, PANEL_MARGIN),
     "folderNumbersLayout": (PANEL_MARGIN, PANEL_MARGIN, PANEL_MARGIN, PANEL_MARGIN),
@@ -370,7 +369,6 @@ QTableWidget QHeaderView::section {{
     font-weight: 600;
 }}
 
-QLabel#excelDisplayLabel,
 QLabel#excelMissingLabel,
 QLabel#excelIssueLabel {{
     color: #334155;
@@ -481,12 +479,6 @@ def apply_widget_metrics(root: QWidget) -> None:
         table.verticalHeader().setMinimumSectionSize(TABLE_ROW_HEIGHT)
         table.horizontalHeader().setMinimumHeight(TABLE_HEADER_HEIGHT)
         table.horizontalHeader().setStretchLastSection(False)
-
-    excel_display_table = root.findChild(QTableWidget, "excelDisplayTable")
-    if excel_display_table is not None:
-        excel_display_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch
-        )
 
     for object_name in (
         "excelMissingTable",

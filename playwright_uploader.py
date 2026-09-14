@@ -835,6 +835,8 @@ class NamDinhUploaderSession:
         self.login_response_ok = False
         self.prepared_pages: dict[int, PreparedBrowserTab] = {}
         self._prepared_record_ids: set[int] = set()
+        self._minimized_cdp = None
+        self._minimized_window_id: int | None = None
 
     def log(self, message: str) -> None:
         append_log_line(self.log_path, message)
@@ -858,6 +860,8 @@ class NamDinhUploaderSession:
         self.login_response_ok = False
         self.prepared_pages.clear()
         self._prepared_record_ids.clear()
+        self._minimized_cdp = None
+        self._minimized_window_id = None
         if self.context is not None:
             try:
                 self.context.close()
@@ -1002,6 +1006,40 @@ class NamDinhUploaderSession:
     def _save_storage_state(self) -> None:
         if self.context is not None:
             self.context.storage_state(path=str(self.settings.storage_state_path))
+
+    def _browser_window_state(self) -> tuple[object | None, int | None, str]:
+        """Return (cdp_session, window_id, window_state) for the shared Chromium window."""
+        page = self.anchor_page
+        if self.context is None or self._page_is_closed(page):
+            return None, None, ""
+        try:
+            cdp = self.context.new_cdp_session(page)
+            info = cdp.send("Browser.getWindowForTarget")
+            bounds = info.get("bounds") or {}
+            return cdp, int(info.get("windowId")), str(bounds.get("windowState") or "")
+        except Exception:
+            return None, None, ""
+
+    def _keep_browser_window_minimized(self) -> None:
+        if self._minimized_cdp is None or self._minimized_window_id is None:
+            return
+        try:
+            self._minimized_cdp.send(
+                "Browser.setWindowBounds",
+                {"windowId": self._minimized_window_id, "bounds": {"windowState": "minimized"}},
+            )
+        except Exception:
+            pass
+
+    def _leave_anchor_on_listing(self, listing_url: str) -> None:
+        """Keep the visible browser tab on the contract-book list after an export."""
+        anchor = self.anchor_page
+        if self._page_is_closed(anchor):
+            return
+        try:
+            anchor.goto(listing_url, wait_until="domcontentloaded")
+        except Exception as exc:
+            self.log(f"[UPLOAD][EXPORT] Khong dua tab chinh ve trang danh sach: {exc}")
 
     @staticmethod
     def _page_is_closed(page) -> bool:
@@ -1408,9 +1446,9 @@ class NamDinhUploaderSession:
         target_dir.mkdir(parents=True, exist_ok=True)
 
         self.ensure_authenticated()
+        listing_url = f"{self.settings.base_url.rstrip('/')}/ho-so-cong-chung?page=1"
         page = self.context.new_page()
         try:
-            listing_url = f"{self.settings.base_url.rstrip('/')}/ho-so-cong-chung?page=1"
             page.goto(listing_url, wait_until="domcontentloaded")
             export_button = page.get_by_text("Xuất Sổ công chứng", exact=False).first
             deadline = time.monotonic() + 30
@@ -1457,7 +1495,10 @@ class NamDinhUploaderSession:
             )
             return save_path
         finally:
-            page.close()
+            try:
+                page.close()
+            finally:
+                self._leave_anchor_on_listing(listing_url)
 
     def _fill_text(self, page, field_name: str, value: str) -> bool:
         locator, source = self._resolve_control_locator(page, field_name)
@@ -1961,7 +2002,9 @@ class NamDinhUploaderSession:
             self.log(f"[UPLOAD] File goc khong ton tai, tiep tuc khong upload file: {record.source_file}")
 
         page = self.context.new_page()
+        self._keep_browser_window_minimized()
         page.goto(self.settings.create_url, wait_until="domcontentloaded")
+        self._keep_browser_window_minimized()
         page_state = self._wait_for_create_or_login(page)
         if page_state == "login":
             self._begin_login_tracking(page)
@@ -2103,6 +2146,14 @@ class NamDinhUploaderSession:
         artifact_dir.mkdir(parents=True, exist_ok=True)
         self.run_log_path = artifact_dir / "dry_run_trace.log"
         self.log(f"[UPLOAD] Artifact dir: {artifact_dir}")
+        cdp, window_id, window_state = self._browser_window_state()
+        if window_state == "minimized":
+            self._minimized_cdp = cdp
+            self._minimized_window_id = window_id
+            self.log("[UPLOAD] Chromium dang thu nho; giu minimize trong luc chuan bi batch.")
+        else:
+            self._minimized_cdp = None
+            self._minimized_window_id = None
         self.ensure_authenticated(stop_event=stop_event)
 
         prepared_count = 0
