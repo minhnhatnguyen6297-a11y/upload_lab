@@ -1,0 +1,13 @@
+{
+  "name": "upload-lab-desktop-command-poc",
+  "private": true,
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "test": "node --test main.test.mjs renderer_logic.test.mjs",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^31.0.2"
+  }
+}

@@ -18,3 +18,4 @@ uploader_staff_options.json
 .worktrees/
 design_preview/
 .1devtool/
+node_modules/
